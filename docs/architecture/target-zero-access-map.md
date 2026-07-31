@@ -51,7 +51,7 @@ Data: 2026-07-31
 | `zero-web` | Cliente web seguro, buildado com Bun e servido por nginx ou container estático. |
 | `zero-delivery` | Transporte interno de entrega local, responsável por criptografar antes de persistir. |
 | `zero-worker` | Filas, envio externo, expiração, notificações e tarefas de key transparency. |
-| `zero-blob` | Volume ou serviço de armazenamento de ciphertext. |
+| `zero-blob-vol-1` | Volume de armazenamento de ciphertext. Pode virar serviço dedicado depois. |
 
 ## Serviços removidos do caminho principal
 

@@ -6,6 +6,7 @@ export type ZeroApiConfig = {
   databaseUser: string;
   redisConfigured: boolean;
   timezone: string;
+  blobDir: string;
 };
 
 export function readConfig(env: Record<string, string | undefined>): ZeroApiConfig {
@@ -28,6 +29,7 @@ export function readConfig(env: Record<string, string | undefined>): ZeroApiConf
     databaseName: env.DBNAME ?? "",
     databaseUser: env.DBUSER ?? "",
     redisConfigured: Boolean(env.REDISPASS),
-    timezone: env.TZ ?? "UTC"
+    timezone: env.TZ ?? "UTC",
+    blobDir: env.ZERO_BLOB_DIR ?? "/var/lib/zero-api/blobs"
   };
 }

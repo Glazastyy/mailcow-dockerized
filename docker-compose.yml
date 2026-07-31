@@ -264,6 +264,7 @@ services:
         - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
         - ZERO_API_HOST=0.0.0.0
         - ZERO_API_PORT=8080
+        - ZERO_BLOB_DIR=/var/lib/zero-api/blobs
         - DBNAME=${DBNAME}
         - DBUSER=${DBUSER}
         - DBPASS=${DBPASS}
@@ -271,6 +272,8 @@ services:
         - TZ=${TZ}
       expose:
         - "8080"
+      volumes:
+        - zero-blob-vol-1:/var/lib/zero-api/blobs
       healthcheck:
         test: ["CMD", "bun", "/app/src/healthcheck.ts"]
         interval: 30s
@@ -716,3 +719,4 @@ volumes:
   sogo-web-vol-1:
   sogo-userdata-backup-vol-1:
   clamd-db-vol-1:
+  zero-blob-vol-1:

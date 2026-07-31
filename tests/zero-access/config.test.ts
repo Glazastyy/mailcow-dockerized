@@ -61,6 +61,20 @@ describe("zero-access compose topology", () => {
 
     expect(config.services["zero-api-mailcow"]).toBeDefined();
     expect(config.services["zero-api-mailcow"].environment.ZERO_ACCESS_REQUIRED).toBe("y");
+    expect(config.services["zero-api-mailcow"].environment.ZERO_BLOB_DIR).toBe("/var/lib/zero-api/blobs");
+    expect(config.volumes["zero-blob-vol-1"]).toBeDefined();
+  });
+
+  test("zero-api stores blobs in the dedicated ciphertext volume", () => {
+    const config = composeConfig();
+    const volumes = config.services["zero-api-mailcow"].volumes;
+
+    expect(volumes).toContainEqual(
+      expect.objectContaining({
+        source: "zero-blob-vol-1",
+        target: "/var/lib/zero-api/blobs"
+      })
+    );
   });
 
   test("legacy mailbox protocols bind to localhost by default", () => {

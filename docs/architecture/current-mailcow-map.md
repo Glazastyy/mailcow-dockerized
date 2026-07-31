@@ -68,6 +68,7 @@ Resultado: o servidor processa MIME em claro para e-mails enviados por SMTP trad
 - Os fallbacks do `docker-compose.yml` para IMAP, IMAPS, POP3, POP3S e Sieve também passam a bindar em `127.0.0.1`.
 - `SKIP_SOGO=y` passa a ser o default gerado.
 - `zero-api-mailcow` passa a existir como serviço Bun interno com healthcheck em `/health`.
+- `zero-blob-vol-1` passa a existir como volume dedicado para ciphertext do `zero-api`.
 - A suíte Bun cobre defaults zero-access, validade do Compose, bind local de protocolos legados e comportamento inicial do `zero-api`.
 - `nginx-mailcow`, `ofelia-mailcow` e `watchdog-mailcow` deixam de ter dependências duras de SOGo/Dovecot no caminho zero-access.
 - Essa flag ainda não muda comportamento sozinha; ela cria o contrato para as próximas alterações recusarem fluxos não zero-access.
