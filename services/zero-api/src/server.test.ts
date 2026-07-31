@@ -53,7 +53,6 @@ describe("zero-api handler", () => {
     const handler = createHandler(config);
 
     expect((await handler(new Request("http://zero-api/crypto/bootstrap"))).status).toBe(501);
-    expect((await handler(new Request("http://zero-api/mail/messages"))).status).toBe(501);
   });
 
   test("accepts only ciphertext blob uploads", async () => {
@@ -164,5 +163,59 @@ describe("zero-api handler", () => {
       keyVersion: 1
     });
     expect(JSON.stringify(publicBody)).not.toContain("ciphertext-private-key");
+  });
+
+  test("stores only encrypted mail message metadata", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config);
+    const createResponse = await handler(
+      new Request("http://zero-api/mail/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          recipient: "Bob@Example.Test",
+          ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
+          recipientKeyId: "bob-key",
+          encryptionState: "local_e2ee"
+        })
+      })
+    );
+    const created = await createResponse.json();
+    const readResponse = await handler(new Request(`http://zero-api/mail/messages/${created.id}`));
+    const readBody = await readResponse.json();
+
+    expect(createResponse.status).toBe(201);
+    expect(created).toEqual({
+      id: expect.any(String),
+      recipient: "bob@example.test",
+      ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
+      recipientKeyId: "bob-key",
+      encryptionState: "local_e2ee"
+    });
+    expect(readResponse.status).toBe(200);
+    expect(readBody).toEqual(created);
+    expect(JSON.stringify(readBody)).not.toContain("body");
+    expect(JSON.stringify(readBody)).not.toContain("hello");
+  });
+
+  test("rejects cleartext fields in mail message creation", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config);
+    const response = await handler(
+      new Request("http://zero-api/mail/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          recipient: "bob@example.test",
+          ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
+          recipientKeyId: "bob-key",
+          encryptionState: "local_e2ee",
+          body: "hello"
+        })
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "cleartext_rejected" });
   });
 });

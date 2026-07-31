@@ -1,12 +1,14 @@
 import { readConfig, type ZeroApiConfig } from "./config";
 import { createFileBlobStore, createMemoryBlobStore, type BlobStore } from "./blob-store";
 import { createMemoryKeyStore, validateUserKeyPayload, type KeyStore } from "./key-store";
+import { createMemoryMessageStore, validateMessagePayload, type MessageStore } from "./message-store";
 
 type JsonValue = Record<string, unknown>;
 type HandlerDeps = {
   blobStore?: BlobStore;
   blobs?: Map<string, Uint8Array>;
   keyStore?: KeyStore;
+  messageStore?: MessageStore;
 };
 
 function jsonResponse(body: JsonValue, status = 200): Response {
@@ -26,6 +28,7 @@ export function createHandler(config: ZeroApiConfig, deps: HandlerDeps = {}) {
 export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps = {}) {
   const blobStore = deps.blobStore ?? (deps.blobs ? createMemoryBlobStore(deps.blobs) : createFileBlobStore(config.blobDir));
   const keyStore = deps.keyStore ?? createMemoryKeyStore();
+  const messageStore = deps.messageStore ?? createMemoryMessageStore();
 
   return async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -111,6 +114,31 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
           "cache-control": "no-store"
         }
       });
+    }
+
+    if (request.method === "POST" && url.pathname === "/mail/messages") {
+      if (request.headers.get("content-type") !== "application/json") {
+        return jsonResponse({ error: "json_required" }, 415);
+      }
+
+      const validation = validateMessagePayload((await request.json()) as Record<string, unknown>);
+
+      if (!validation.ok) {
+        return jsonResponse({ error: validation.error }, 422);
+      }
+
+      return jsonResponse(await messageStore.save(validation.message), 201);
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/mail/messages/")) {
+      const id = url.pathname.slice("/mail/messages/".length);
+      const message = await messageStore.get(id);
+
+      if (!message) {
+        return jsonResponse({ error: "not_found" }, 404);
+      }
+
+      return jsonResponse(message);
     }
 
     if (url.pathname.startsWith("/mail/") || url.pathname.startsWith("/crypto/")) {

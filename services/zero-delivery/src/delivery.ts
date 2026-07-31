@@ -5,6 +5,13 @@ export type DeliveryRequest = {
   encryptionState: string;
 };
 
+export type AcceptedDelivery = {
+  recipient: string;
+  ciphertextBlobId: string;
+  recipientKeyId: string;
+  encryptionState: string;
+};
+
 export type RecipientKey = {
   address: string;
   primaryKeyId: string;
@@ -14,11 +21,25 @@ export type RecipientKeyResolver = {
   resolve(address: string): Promise<RecipientKey | undefined>;
 };
 
+export type MessageSink = {
+  store(message: AcceptedDelivery): Promise<void>;
+};
+
 export type DeliveryResult =
-  | { ok: true; recipient: string; ciphertextBlobId: string }
-  | { ok: false; error: "recipient_key_required" | "ciphertext_required" | "unsupported_encryption_state" };
+  | { ok: true; recipient: string; ciphertextBlobId: string; accepted: AcceptedDelivery }
+  | { ok: false; error: "recipient_key_required" | "ciphertext_required" | "unsupported_encryption_state" | "cleartext_rejected" };
+
+const cleartextFields = ["body", "msg", "html", "text"] as const;
 
 export function validateDelivery(request: DeliveryRequest): DeliveryResult {
+  const payload = request as unknown as Record<string, unknown>;
+
+  for (const field of cleartextFields) {
+    if (field in payload && payload[field] !== undefined) {
+      return { ok: false, error: "cleartext_rejected" };
+    }
+  }
+
   if (!request.recipientKeyId) {
     return { ok: false, error: "recipient_key_required" };
   }
@@ -34,7 +55,13 @@ export function validateDelivery(request: DeliveryRequest): DeliveryResult {
   return {
     ok: true,
     recipient: request.recipient,
-    ciphertextBlobId: request.ciphertextBlobId
+    ciphertextBlobId: request.ciphertextBlobId,
+    accepted: {
+      recipient: request.recipient,
+      ciphertextBlobId: request.ciphertextBlobId,
+      recipientKeyId: request.recipientKeyId,
+      encryptionState: request.encryptionState
+    }
   };
 }
 
@@ -61,6 +88,22 @@ export function createHttpRecipientKeyResolver(baseUrl: string): RecipientKeyRes
       }
 
       return (await response.json()) as RecipientKey;
+    }
+  };
+}
+
+export function createHttpMessageSink(baseUrl: string): MessageSink {
+  return {
+    async store(message) {
+      const response = await fetch(`${baseUrl}/mail/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(message)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Message store failed with status ${response.status}`);
+      }
     }
   };
 }

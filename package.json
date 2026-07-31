@@ -2,8 +2,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test --path-ignore-patterns 'vendor-reference/**' tests services/zero-api/src",
-    "test:zero-access": "bun test --path-ignore-patterns 'vendor-reference/**' tests/zero-access services/zero-api/src"
+    "test": "bun test --path-ignore-patterns 'vendor-reference/**' tests services/zero-api/src services/zero-delivery/src",
+    "test:zero-access": "bun test --path-ignore-patterns 'vendor-reference/**' tests/zero-access services/zero-api/src services/zero-delivery/src"
   },
   "devDependencies": {}
 }

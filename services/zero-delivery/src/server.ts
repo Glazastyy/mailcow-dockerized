@@ -1,8 +1,16 @@
 import { readConfig, type ZeroDeliveryConfig } from "./config";
-import { createHttpRecipientKeyResolver, validateResolvedDelivery, type DeliveryRequest, type RecipientKeyResolver } from "./delivery";
+import {
+  createHttpMessageSink,
+  createHttpRecipientKeyResolver,
+  validateResolvedDelivery,
+  type DeliveryRequest,
+  type MessageSink,
+  type RecipientKeyResolver
+} from "./delivery";
 
 type HandlerDeps = {
   recipientKeyResolver?: RecipientKeyResolver;
+  messageSink?: MessageSink;
 };
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
@@ -17,6 +25,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 
 export function createHandler(config: ZeroDeliveryConfig, deps: HandlerDeps = {}) {
   const recipientKeyResolver = deps.recipientKeyResolver ?? createHttpRecipientKeyResolver(config.zeroApiBaseUrl);
+  const messageSink = deps.messageSink ?? createHttpMessageSink(config.zeroApiBaseUrl);
 
   return async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -33,7 +42,20 @@ export function createHandler(config: ZeroDeliveryConfig, deps: HandlerDeps = {}
       const body = (await request.json()) as DeliveryRequest;
       const result = await validateResolvedDelivery(body, recipientKeyResolver);
 
-      return jsonResponse(result, result.ok ? 202 : 422);
+      if (!result.ok) {
+        return jsonResponse(result, 422);
+      }
+
+      await messageSink.store(result.accepted);
+
+      return jsonResponse(
+        {
+          ok: true,
+          recipient: result.recipient,
+          ciphertextBlobId: result.ciphertextBlobId
+        },
+        202
+      );
     }
 
     return jsonResponse({ error: "not_found" }, 404);
