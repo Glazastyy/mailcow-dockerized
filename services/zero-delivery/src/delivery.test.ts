@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readConfig } from "./config";
-import { createHttpCiphertextBlobSink, validateDelivery, validateResolvedDelivery } from "./delivery";
+import { createHttpCiphertextBlobSink, createStaticRecipientResolver, resolveDeliveryRecipients, validateDelivery, validateResolvedDelivery } from "./delivery";
 import { createHandler } from "./server";
 
 describe("zero-delivery config", () => {
@@ -88,6 +88,20 @@ describe("zero-delivery validation", () => {
         recipientKeyId: "bob-key",
         encryptionState: "local_e2ee"
       }
+    });
+  });
+
+  test("expands aliases before recipient key resolution", async () => {
+    await expect(
+      resolveDeliveryRecipients(["Team@Example.Test", "alice@example.test"], createStaticRecipientResolver({ "team@example.test": ["alice@example.test", "bob@example.test"] }))
+    ).resolves.toEqual(["alice@example.test", "bob@example.test"]);
+  });
+
+  test("rejects unresolved aliases", async () => {
+    await expect(resolveDeliveryRecipients(["missing@example.test"], createStaticRecipientResolver({ "missing@example.test": [] }))).resolves.toEqual({
+      ok: false,
+      error: "recipient_unresolved",
+      recipient: "missing@example.test"
     });
   });
 });
@@ -274,6 +288,64 @@ describe("zero-delivery handler", () => {
       {
         recipient: "bob@example.test",
         ciphertextBlobId: "uploaded-blob-2",
+        recipientKeyId: "bob@example.test-key",
+        encryptionState: "local_e2ee"
+      }
+    ]);
+  });
+
+  test("expands alias recipients before fan-out", async () => {
+    const stored: unknown[] = [];
+    const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientResolver: createStaticRecipientResolver({
+        "team@example.test": ["alice@example.test", "bob@example.test"]
+      }),
+      recipientKeyResolver: {
+        async resolve(address) {
+          return { address, primaryKeyId: `${address}-key` };
+        }
+      },
+      ciphertextBlobSink: {
+        async store() {
+          return { id: crypto.randomUUID() };
+        }
+      },
+      messageSink: {
+        async store(message) {
+          stored.push(message);
+        }
+      }
+    });
+    const response = await handler(
+      new Request("http://zero-delivery/deliver", {
+        method: "POST",
+        body: JSON.stringify({
+          recipient: "team@example.test",
+          ciphertext: Buffer.from([3, 3, 3]).toString("base64"),
+          encryptionState: "local_e2ee"
+        })
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(body).toEqual({
+      ok: true,
+      deliveries: [
+        { recipient: "alice@example.test", ciphertextBlobId: expect.any(String) },
+        { recipient: "bob@example.test", ciphertextBlobId: expect.any(String) }
+      ]
+    });
+    expect(stored).toEqual([
+      {
+        recipient: "alice@example.test",
+        ciphertextBlobId: body.deliveries[0].ciphertextBlobId,
+        recipientKeyId: "alice@example.test-key",
+        encryptionState: "local_e2ee"
+      },
+      {
+        recipient: "bob@example.test",
+        ciphertextBlobId: body.deliveries[1].ciphertextBlobId,
         recipientKeyId: "bob@example.test-key",
         encryptionState: "local_e2ee"
       }

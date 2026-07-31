@@ -3,16 +3,20 @@ import {
   createHttpMessageSink,
   createHttpCiphertextBlobSink,
   createHttpRecipientKeyResolver,
+  createPassthroughRecipientResolver,
   decodeCiphertext,
   deliveryRecipients,
   hasCleartextFields,
+  resolveDeliveryRecipients,
   type CiphertextBlobSink,
   type DeliveryRequest,
   type MessageSink,
-  type RecipientKeyResolver
+  type RecipientKeyResolver,
+  type RecipientResolver
 } from "./delivery";
 
 type HandlerDeps = {
+  recipientResolver?: RecipientResolver;
   recipientKeyResolver?: RecipientKeyResolver;
   messageSink?: MessageSink;
   ciphertextBlobSink?: CiphertextBlobSink;
@@ -29,6 +33,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 export function createHandler(config: ZeroDeliveryConfig, deps: HandlerDeps = {}) {
+  const recipientResolver = deps.recipientResolver ?? createPassthroughRecipientResolver();
   const recipientKeyResolver = deps.recipientKeyResolver ?? createHttpRecipientKeyResolver(config.zeroApiBaseUrl);
   const messageSink = deps.messageSink ?? createHttpMessageSink(config.zeroApiBaseUrl);
   const ciphertextBlobSink = deps.ciphertextBlobSink ?? createHttpCiphertextBlobSink(config.zeroApiBaseUrl);
@@ -51,15 +56,21 @@ export function createHandler(config: ZeroDeliveryConfig, deps: HandlerDeps = {}
         return jsonResponse({ ok: false, error: "cleartext_rejected" }, 422);
       }
 
-      const recipients = deliveryRecipients(body);
+      const rawRecipients = deliveryRecipients(body);
 
-      if (recipients.length === 0) {
+      if (rawRecipients.length === 0) {
         return jsonResponse({ ok: false, error: "recipient_key_required" }, 422);
+      }
+
+      const resolvedRecipients = await resolveDeliveryRecipients(rawRecipients, recipientResolver);
+
+      if (!Array.isArray(resolvedRecipients)) {
+        return jsonResponse({ ok: false, error: resolvedRecipients.error, recipient: resolvedRecipients.recipient }, 422);
       }
 
       const recipientKeys = [];
 
-      for (const recipient of recipients) {
+      for (const recipient of resolvedRecipients) {
         const key = await recipientKeyResolver.resolve(recipient);
 
         if (!key) {

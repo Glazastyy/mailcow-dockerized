@@ -670,7 +670,7 @@ Tarefas:
 - Integrar Rspamd antes da persistência.
 - Criptografar inbound externo para chave pública do destinatário.
 - Persistir metadados mínimos.
-- Tratar alias simples e múltiplos destinatários. Iniciado no handler HTTP interno com fan-out `recipients[]`, resolução all-or-nothing de chaves e envelope/blob separado por destinatário.
+- Tratar alias simples e múltiplos destinatários. Iniciado no handler HTTP interno com `RecipientResolver`, expansão de alias/catch-all, fan-out `recipients[]`, resolução all-or-nothing de chaves e envelope/blob separado por destinatário.
 - Adicionar teste SMTP real com mensagem externa.
 
 Saída esperada:

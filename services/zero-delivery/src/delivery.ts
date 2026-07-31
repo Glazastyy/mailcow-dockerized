@@ -25,6 +25,10 @@ export type RecipientKeyResolver = {
   resolve(address: string): Promise<RecipientKey | undefined>;
 };
 
+export type RecipientResolver = {
+  resolve(address: string): Promise<string[] | undefined>;
+};
+
 export type MessageSink = {
   store(message: AcceptedDelivery): Promise<void>;
 };
@@ -37,7 +41,11 @@ type FetchRequest = (request: Request) => Promise<Response>;
 
 export type DeliveryResult =
   | { ok: true; recipient: string; ciphertextBlobId: string; accepted: AcceptedDelivery }
-  | { ok: false; error: "recipient_key_required" | "ciphertext_required" | "unsupported_encryption_state" | "cleartext_rejected" };
+  | {
+      ok: false;
+      error: "recipient_key_required" | "ciphertext_required" | "unsupported_encryption_state" | "cleartext_rejected" | "recipient_unresolved";
+      recipient?: string;
+    };
 
 const cleartextFields = ["body", "msg", "html", "text"] as const;
 
@@ -98,14 +106,57 @@ export async function validateResolvedDelivery(request: DeliveryRequest, resolve
 
 export function deliveryRecipients(request: DeliveryRequest): string[] {
   if (Array.isArray(request.recipients)) {
-    return Array.from(new Set(request.recipients.filter((recipient) => typeof recipient === "string" && recipient.length > 0)));
+    return Array.from(new Set(request.recipients.filter((recipient) => typeof recipient === "string" && recipient.length > 0).map((recipient) => recipient.toLowerCase())));
   }
 
   if (typeof request.recipient === "string" && request.recipient.length > 0) {
-    return [request.recipient];
+    return [request.recipient.toLowerCase()];
   }
 
   return [];
+}
+
+export async function resolveDeliveryRecipients(
+  recipients: string[],
+  resolver: RecipientResolver
+): Promise<string[] | { ok: false; error: "recipient_unresolved"; recipient: string }> {
+  const resolved = [];
+
+  for (const recipient of recipients) {
+    const normalizedRecipient = recipient.toLowerCase();
+    const expanded = await resolver.resolve(normalizedRecipient);
+
+    if (!expanded || expanded.length === 0) {
+      return {
+        ok: false,
+        error: "recipient_unresolved",
+        recipient: normalizedRecipient
+      };
+    }
+
+    for (const address of expanded) {
+      resolved.push(address.toLowerCase());
+    }
+  }
+
+  return Array.from(new Set(resolved));
+}
+
+export function createPassthroughRecipientResolver(): RecipientResolver {
+  return {
+    async resolve(address) {
+      return [address.toLowerCase()];
+    }
+  };
+}
+
+export function createStaticRecipientResolver(aliases: Record<string, string[]>): RecipientResolver {
+  return {
+    async resolve(address) {
+      const normalizedAddress = address.toLowerCase();
+      return aliases[normalizedAddress] ?? [normalizedAddress];
+    }
+  };
 }
 
 export function hasCleartextFields(request: DeliveryRequest): boolean {
