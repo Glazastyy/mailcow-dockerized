@@ -4,7 +4,7 @@ function init_db_schema()
   try {
     global $pdo;
 
-    $db_version = "19022026_1220";
+    $db_version = "31072026_0001";
 
     $stmt = $pdo->query("SHOW TABLES LIKE 'versions'");
     $num_results = count($stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -1146,6 +1146,205 @@ function init_db_schema()
         "keys" => array(
           "primary" => array(
             "" => array("refresh_token")
+          )
+        ),
+        "attr" => "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC"
+      ),
+      "zero_user_keys" => array(
+        "cols" => array(
+          "id" => "BIGINT NOT NULL AUTO_INCREMENT",
+          "username" => "VARCHAR(255) NOT NULL",
+          "address" => "VARCHAR(255) NOT NULL",
+          "primary_key_id" => "VARCHAR(128) NOT NULL",
+          "public_key_armored" => "MEDIUMTEXT NOT NULL",
+          "encrypted_private_key" => "LONGTEXT NOT NULL",
+          "private_key_kdf" => "ENUM('argon2id','pbkdf2') NOT NULL DEFAULT 'argon2id'",
+          "private_key_kdf_params" => "JSON NOT NULL",
+          "key_version" => "INT UNSIGNED NOT NULL DEFAULT 1",
+          "status" => "ENUM('active','rotated','revoked') NOT NULL DEFAULT 'active'",
+          "created" => "DATETIME(0) NOT NULL DEFAULT NOW(0)",
+          "rotated" => "DATETIME(0) DEFAULT NULL",
+          "revoked" => "DATETIME(0) DEFAULT NULL"
+        ),
+        "keys" => array(
+          "primary" => array(
+            "" => array("id")
+          ),
+          "unique" => array(
+            "address_key_version" => array("address", "key_version")
+          ),
+          "key" => array(
+            "username" => array("username"),
+            "address" => array("address"),
+            "primary_key_id" => array("primary_key_id"),
+            "status" => array("status")
+          ),
+          "fkey" => array(
+            "fk_zero_user_keys_username" => array(
+              "col" => "`username`",
+              "ref" => "mailbox.username",
+              "delete" => "CASCADE",
+              "update" => "NO ACTION"
+            )
+          )
+        ),
+        "attr" => "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC"
+      ),
+      "zero_recipient_keys" => array(
+        "cols" => array(
+          "id" => "BIGINT NOT NULL AUTO_INCREMENT",
+          "address" => "VARCHAR(255) NOT NULL",
+          "source" => "ENUM('local','wkd','autocrypt','manual','keyserver') NOT NULL",
+          "public_key_armored" => "MEDIUMTEXT NOT NULL",
+          "fingerprint" => "VARCHAR(128) NOT NULL",
+          "trust_level" => "ENUM('local_verified','manual_verified','wkd_verified','autocrypt_seen','imported_unverified','conflict') NOT NULL DEFAULT 'imported_unverified'",
+          "first_seen" => "DATETIME(0) NOT NULL DEFAULT NOW(0)",
+          "last_seen" => "DATETIME(0) NOT NULL DEFAULT NOW(0)",
+          "last_verified" => "DATETIME(0) DEFAULT NULL",
+          "expires" => "DATETIME(0) DEFAULT NULL",
+          "status" => "ENUM('active','superseded','revoked','expired','conflict') NOT NULL DEFAULT 'active'"
+        ),
+        "keys" => array(
+          "primary" => array(
+            "" => array("id")
+          ),
+          "unique" => array(
+            "address_source_fingerprint" => array("address", "source", "fingerprint")
+          ),
+          "key" => array(
+            "address" => array("address"),
+            "fingerprint" => array("fingerprint"),
+            "trust_level" => array("trust_level"),
+            "status" => array("status")
+          )
+        ),
+        "attr" => "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC"
+      ),
+      "zero_messages" => array(
+        "cols" => array(
+          "id" => "CHAR(36) NOT NULL",
+          "mailbox" => "VARCHAR(255) NOT NULL",
+          "folder" => "VARCHAR(255) NOT NULL DEFAULT 'Inbox'",
+          "rfc822_message_id" => "VARCHAR(998)",
+          "thread_id" => "VARCHAR(128)",
+          "direction" => "ENUM('inbound','outbound','local') NOT NULL",
+          "encrypted_blob_ref" => "VARCHAR(512) NOT NULL",
+          "encrypted_subject" => "TEXT",
+          "subject_search_hash" => "CHAR(64)",
+          "from_addr" => "VARCHAR(255)",
+          "to_addrs" => "JSON NOT NULL",
+          "cc_addrs" => "JSON NOT NULL DEFAULT ('[]')",
+          "bcc_addrs" => "JSON NOT NULL DEFAULT ('[]')",
+          "date_header" => "DATETIME(0) DEFAULT NULL",
+          "received_at" => "DATETIME(0) NOT NULL DEFAULT NOW(0)",
+          "size" => "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "flags" => "JSON NOT NULL DEFAULT ('[]')",
+          "encryption_state" => "ENUM('local_e2ee','openpgp','password_portal','tls_only','unknown') NOT NULL DEFAULT 'unknown'",
+          "spam_state" => "ENUM('not_scanned','clean','spam','quarantine') NOT NULL DEFAULT 'not_scanned'"
+        ),
+        "keys" => array(
+          "primary" => array(
+            "" => array("id")
+          ),
+          "key" => array(
+            "mailbox_folder_received" => array("mailbox", "folder", "received_at"),
+            "rfc822_message_id" => array("rfc822_message_id"),
+            "thread_id" => array("thread_id"),
+            "subject_search_hash" => array("subject_search_hash"),
+            "encryption_state" => array("encryption_state")
+          ),
+          "fkey" => array(
+            "fk_zero_messages_mailbox" => array(
+              "col" => "`mailbox`",
+              "ref" => "mailbox.username",
+              "delete" => "CASCADE",
+              "update" => "NO ACTION"
+            )
+          )
+        ),
+        "attr" => "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC"
+      ),
+      "zero_attachments" => array(
+        "cols" => array(
+          "id" => "CHAR(36) NOT NULL",
+          "message_id" => "CHAR(36) NOT NULL",
+          "encrypted_blob_ref" => "VARCHAR(512) NOT NULL",
+          "encrypted_name" => "TEXT",
+          "mime_type" => "VARCHAR(255)",
+          "size" => "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "sha256_ciphertext" => "CHAR(64) NOT NULL"
+        ),
+        "keys" => array(
+          "primary" => array(
+            "" => array("id")
+          ),
+          "key" => array(
+            "message_id" => array("message_id"),
+            "sha256_ciphertext" => array("sha256_ciphertext")
+          ),
+          "fkey" => array(
+            "fk_zero_attachments_message" => array(
+              "col" => "`message_id`",
+              "ref" => "zero_messages.id",
+              "delete" => "CASCADE",
+              "update" => "NO ACTION"
+            )
+          )
+        ),
+        "attr" => "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC"
+      ),
+      "zero_key_events" => array(
+        "cols" => array(
+          "id" => "BIGINT NOT NULL AUTO_INCREMENT",
+          "address" => "VARCHAR(255) NOT NULL",
+          "event_type" => "ENUM('created','rotated','revoked','recovered','verified') NOT NULL",
+          "fingerprint" => "VARCHAR(128) NOT NULL",
+          "event_payload" => "JSON NOT NULL",
+          "previous_event_hash" => "CHAR(64)",
+          "event_hash" => "CHAR(64) NOT NULL",
+          "created" => "DATETIME(0) NOT NULL DEFAULT NOW(0)"
+        ),
+        "keys" => array(
+          "primary" => array(
+            "" => array("id")
+          ),
+          "unique" => array(
+            "event_hash" => array("event_hash")
+          ),
+          "key" => array(
+            "address" => array("address"),
+            "fingerprint" => array("fingerprint"),
+            "created" => array("created")
+          )
+        ),
+        "attr" => "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC"
+      ),
+      "zero_recovery" => array(
+        "cols" => array(
+          "id" => "BIGINT NOT NULL AUTO_INCREMENT",
+          "username" => "VARCHAR(255) NOT NULL",
+          "method" => "ENUM('recovery_phrase','printed_key','guardian_split','authorized_device') NOT NULL",
+          "encrypted_recovery_packet" => "LONGTEXT NOT NULL",
+          "public_hint" => "VARCHAR(255)",
+          "created" => "DATETIME(0) NOT NULL DEFAULT NOW(0)",
+          "used" => "DATETIME(0) DEFAULT NULL",
+          "revoked" => "DATETIME(0) DEFAULT NULL"
+        ),
+        "keys" => array(
+          "primary" => array(
+            "" => array("id")
+          ),
+          "key" => array(
+            "username" => array("username"),
+            "method" => array("method")
+          ),
+          "fkey" => array(
+            "fk_zero_recovery_username" => array(
+              "col" => "`username`",
+              "ref" => "mailbox.username",
+              "delete" => "CASCADE",
+              "update" => "NO ACTION"
+            )
           )
         ),
         "attr" => "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC"
