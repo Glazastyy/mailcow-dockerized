@@ -178,6 +178,123 @@ describe("zero-api handler", () => {
     expect(JSON.stringify(publicBody)).not.toContain("ciphertext-private-key");
   });
 
+  test("re-encrypts private key envelope when the current password is available client-side", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const keyStore = createMemoryKeyStore();
+    const handler = createHandler(config, { keyStore });
+    await keyStore.saveUserKey({
+      address: "alice@example.test",
+      primaryKeyId: "alice-key",
+      publicKeyArmored: "public",
+      encryptedPrivateKey: "old-envelope",
+      privateKeyKdf: "argon2id",
+      privateKeyKdfParams: { salt: "old" },
+      keyVersion: 1,
+      status: "active"
+    });
+    const response = await handler(
+      new Request("http://zero-api/crypto/password/reencrypt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "alice@example.test",
+          currentPrimaryKeyId: "alice-key",
+          reencryptedPrivateKey: "new-envelope",
+          privateKeyKdf: "argon2id",
+          privateKeyKdfParams: { salt: "new" },
+          currentPrivateKeyProof: "signature"
+        })
+      })
+    );
+    const publicResponse = await handler(new Request("http://zero-api/keys/local/alice@example.test"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      address: "alice@example.test",
+      primaryKeyId: "alice-key",
+      keyVersion: 2,
+      status: "active",
+      mode: "reencrypted"
+    });
+    expect(await publicResponse.json()).toEqual({
+      address: "alice@example.test",
+      primaryKeyId: "alice-key",
+      publicKeyArmored: "public",
+      keyVersion: 2
+    });
+  });
+
+  test("rejects raw passwords during private key envelope re-encryption", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config, { keyStore: createMemoryKeyStore() });
+    const response = await handler(
+      new Request("http://zero-api/crypto/password/reencrypt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "alice@example.test",
+          currentPrimaryKeyId: "alice-key",
+          reencryptedPrivateKey: "new-envelope",
+          privateKeyKdf: "argon2id",
+          privateKeyKdfParams: { salt: "new" },
+          currentPrivateKeyProof: "signature",
+          newPassword: "clear-password"
+        })
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "clear_password_rejected" });
+  });
+
+  test("resets cryptographic identity when current password is unavailable", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const keyStore = createMemoryKeyStore();
+    const handler = createHandler(config, { keyStore });
+    await keyStore.saveUserKey({
+      address: "alice@example.test",
+      primaryKeyId: "old-key",
+      publicKeyArmored: "old-public",
+      encryptedPrivateKey: "old-envelope",
+      privateKeyKdf: "argon2id",
+      privateKeyKdfParams: {},
+      keyVersion: 1,
+      status: "active"
+    });
+    const response = await handler(
+      new Request("http://zero-api/crypto/password/reset", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "alice@example.test",
+          primaryKeyId: "new-key",
+          publicKeyArmored: "new-public",
+          encryptedPrivateKey: "new-envelope",
+          privateKeyKdf: "argon2id",
+          privateKeyKdfParams: { salt: "new" },
+          resetReason: "lost_password"
+        })
+      })
+    );
+    const publicResponse = await handler(new Request("http://zero-api/keys/local/alice@example.test"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      address: "alice@example.test",
+      primaryKeyId: "new-key",
+      keyVersion: 2,
+      status: "active",
+      mode: "reset_new_identity",
+      previousKeysReadable: false
+    });
+    expect(await publicResponse.json()).toEqual({
+      address: "alice@example.test",
+      primaryKeyId: "new-key",
+      publicKeyArmored: "new-public",
+      keyVersion: 2
+    });
+  });
+
   test("stores only encrypted mail message metadata", async () => {
     await withTempBlobDir(async (root) => {
       const config = readConfig({ ZERO_ACCESS_REQUIRED: "y", ZERO_BLOB_DIR: root });

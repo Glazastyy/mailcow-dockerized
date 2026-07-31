@@ -1,6 +1,6 @@
 import { readConfig, type ZeroApiConfig } from "./config";
 import { createFileBlobStore, createMemoryBlobStore, type BlobStore } from "./blob-store";
-import { createMemoryKeyStore, validateUserKeyPayload, type KeyStore } from "./key-store";
+import { createMemoryKeyStore, validatePasswordReencryptPayload, validateUserKeyPayload, type KeyStore } from "./key-store";
 import { createFileMessageStore, validateMessagePayload, type MessageStore } from "./message-store";
 
 type JsonValue = Record<string, unknown>;
@@ -65,6 +65,55 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
         },
         201
       );
+    }
+
+    if (request.method === "POST" && url.pathname === "/crypto/password/reencrypt") {
+      if (request.headers.get("content-type") !== "application/json") {
+        return jsonResponse({ error: "json_required" }, 415);
+      }
+
+      const validation = validatePasswordReencryptPayload((await request.json()) as Record<string, unknown>);
+
+      if (!validation.ok) {
+        return jsonResponse({ error: validation.error }, 422);
+      }
+
+      const key = await keyStore.reencryptUserKey(validation.request);
+
+      if (!key) {
+        return jsonResponse({ error: "active_key_not_found" }, 404);
+      }
+
+      return jsonResponse({
+        address: key.address,
+        primaryKeyId: key.primaryKeyId,
+        keyVersion: key.keyVersion,
+        status: key.status,
+        mode: "reencrypted"
+      });
+    }
+
+    if (request.method === "POST" && url.pathname === "/crypto/password/reset") {
+      if (request.headers.get("content-type") !== "application/json") {
+        return jsonResponse({ error: "json_required" }, 415);
+      }
+
+      const validation = validateUserKeyPayload((await request.json()) as Record<string, unknown>);
+
+      if (!validation.ok) {
+        return jsonResponse({ error: validation.error }, 422);
+      }
+
+      const key = await keyStore.resetUserKey(validation.key);
+
+      return jsonResponse({
+        address: key.address,
+        primaryKeyId: key.primaryKeyId,
+        keyVersion: key.keyVersion,
+        status: key.status,
+        mode: "reset_new_identity",
+        previousKeysReadable: false
+      });
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/keys/local/")) {

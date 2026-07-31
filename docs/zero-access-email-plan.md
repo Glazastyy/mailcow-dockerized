@@ -151,6 +151,7 @@ Responsabilidades:
 - Nunca receber senha derivada reutilizável como chave de criptografia.
 - Guardar chave pública por endereço.
 - Guardar chave privada criptografada por senha do usuário.
+- Tratar senha como material de proteção da chave privada, não como semente determinística da chave privada.
 - Guardar blobs de mensagem criptografados.
 - Guardar índice mínimo: mailbox, folder, flags, datas, tamanho, remetente/destinatários e assunto conforme política.
 - Endpoints para upload/download de anexos criptografados.
@@ -171,6 +172,8 @@ Contratos iniciais da API:
 - `POST /auth/login`: autentica e cria sessão.
 - `GET /crypto/bootstrap`: retorna salts, KDF params, chave pública atual, chave privada criptografada e estado de recuperação.
 - `POST /crypto/keys`: cadastra primeira chave ou nova versão de chave.
+- `POST /crypto/password/reencrypt`: troca de senha com senha atual disponível no cliente; recebe apenas novo envelope criptografado da mesma chave privada.
+- `POST /crypto/password/reset`: reset sem senha atual; revoga identidade criptográfica anterior e cadastra nova chave, tornando histórico antigo ilegível sem recuperação.
 - `POST /crypto/recovery`: cadastra pacote de recuperação.
 - `GET /keys/local/:address`: resolve chave pública local.
 - `GET /keys/wkd/:address`: endpoint interno de montagem WKD.
@@ -185,7 +188,10 @@ Contratos iniciais da API:
 Regras de API:
 
 - Nenhum endpoint aceita chave privada em claro.
+- Nenhum endpoint aceita senha atual, nova senha, hash de senha ou derivado reutilizável.
 - Nenhum endpoint retorna corpo descriptografado.
+- Troca de senha autenticada exige prova client-side de posse da chave privada antiga já desbloqueada, sem enviar a chave privada ao servidor.
+- Reset sem senha atual deve sempre retornar estado explícito de perda de acesso ao histórico antigo, salvo quando houver pacote de recuperação válido.
 - Logs devem registrar IDs, status e tamanhos aproximados, nunca assunto claro, corpo, nomes de anexos ou material de chave.
 - Todas as respostas sensíveis precisam de `Cache-Control: no-store`.
 - Sessões web devem ser curtas, renováveis e revogáveis por dispositivo.
@@ -479,11 +485,13 @@ Métodos: frase de recuperação, chave de recuperação impressa, guardião/adm
 1. Admin cria mailbox na nova aplicação.
 2. Usuário faz primeiro login no `zero-web`.
 3. Browser gera par OpenPGP ou envelope interno.
-4. Browser deriva chave de proteção da senha.
+4. Browser deriva chave de proteção a partir da senha.
 5. Browser criptografa chave privada.
 6. API salva chave pública e chave privada criptografada.
 7. API publica WKD automaticamente se domínio permitir.
 8. Usuário recebe frase/código de recuperação.
+
+Importante: a senha não gera a chave privada de forma determinística. A chave privada deve ser gerada com aleatoriedade criptográfica no cliente; a senha protege o envelope criptografado dessa chave.
 
 ### Login
 
@@ -492,6 +500,26 @@ Métodos: frase de recuperação, chave de recuperação impressa, guardião/adm
 3. Browser deriva chave local.
 4. Browser baixa e descriptografa chave privada.
 5. Chave privada fica apenas em memória, ou em armazenamento local criptografado com autorização explícita.
+
+### Troca de senha com senha atual
+
+1. Usuário informa senha atual e nova senha no cliente.
+2. Browser usa a senha atual para abrir o envelope da chave privada.
+3. Browser deriva nova chave de proteção a partir da nova senha.
+4. Browser recriptografa a mesma chave privada com o novo envelope.
+5. Browser envia ao `zero-api` somente `reencryptedPrivateKey`, novos parâmetros KDF e uma prova assinada pela chave privada antiga desbloqueada.
+6. API substitui o envelope ativo e mantém a mesma chave pública e o mesmo `primaryKeyId`.
+7. Mensagens antigas continuam legíveis porque a chave privada real não mudou.
+
+### Reset de senha sem senha atual
+
+1. Usuário, admin ou fluxo de recuperação inicia reset sem a senha atual.
+2. UI informa de forma bloqueante que o histórico antigo será perdido se não houver pacote de recuperação.
+3. Browser gera novo par de chaves e novo envelope protegido pela nova senha.
+4. API revoga a chave ativa anterior.
+5. API publica a nova chave pública local.
+6. Entregas futuras usam a nova chave.
+7. Mensagens antigas criptografadas para a chave anterior ficam ilegíveis nesse estado.
 
 ### Recebimento externo
 
@@ -587,6 +615,8 @@ Tarefas:
 - Salvar chave pública e chave privada criptografada.
 - Implementar recuperação.
 - Implementar rotação de senha autenticada.
+- Implementar reset sem senha atual como nova identidade criptográfica, com revogação explícita da chave anterior.
+- Adaptar o painel do mailcow para exibir duas opções na troca de senha: preservar histórico com senha atual ou resetar cofre e perder histórico antigo.
 - Implementar endpoint WKD para chave pública.
 - Adicionar testes com duas contas.
 
@@ -847,9 +877,11 @@ Reset tradicional de senha é incompatível com chaves protegidas pela senha ant
 
 Recomendação:
 
-- Troca de senha autenticada recriptografa a chave privada no cliente.
-- Reset sem senha antiga revoga chave antiga ou usa pacote de recuperação.
-- UX precisa deixar claro que perder senha e recuperação pode perder histórico.
+- Painel do mailcow deve oferecer duas ações separadas quando uma senha for alterada.
+- Trocar senha com senha atual: cliente recriptografa a mesma chave privada com a nova senha e preserva acesso ao histórico.
+- Trocar senha sem senha atual: cliente cria nova identidade criptográfica; servidor revoga a chave antiga; histórico antigo fica perdido sem recuperação.
+- Reset com pacote de recuperação válido pode abrir a chave privada antiga no cliente e seguir o fluxo de recriptografia.
+- UX precisa deixar claro que perder senha e recuperação significa perda real de histórico.
 
 ## Reaproveitamento do mailcow neste fork
 
