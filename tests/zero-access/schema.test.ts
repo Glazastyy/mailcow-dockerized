@@ -13,7 +13,7 @@ function tableBlock(table: string) {
 
 describe("zero-access database schema", () => {
   test("bumps the schema version for zero-access tables", () => {
-    expect(schema).toContain('$db_version = "31072026_0001"');
+    expect(schema).toContain('$db_version = "31072026_0002"');
   });
 
   test("declares all zero-access tables", () => {
@@ -36,6 +36,18 @@ describe("zero-access database schema", () => {
     expect(block).toContain('"public_key_armored" => "MEDIUMTEXT NOT NULL"');
     expect(block).not.toContain('"private_key" =>');
     expect(block).not.toContain('"secret_key" =>');
+  });
+
+  test("tracks password re-encryption and destructive reset states for user keys", () => {
+    const keyBlock = tableBlock("zero_user_keys");
+    const eventBlock = tableBlock("zero_key_events");
+
+    expect(keyBlock).toContain('"rotation_mode" => "ENUM(\'initial\',\'password_reencrypt\',\'password_reset\',\'recovery_reencrypt\',\'key_rotation\') NOT NULL DEFAULT \'initial\'"');
+    expect(keyBlock).toContain('"previous_key_id" => "BIGINT DEFAULT NULL"');
+    expect(keyBlock).toContain('"previous_key_id" => array("previous_key_id")');
+    expect(keyBlock).toContain('"fk_zero_user_keys_previous_key"');
+    expect(eventBlock).toContain("password_reencrypted");
+    expect(eventBlock).toContain("password_reset");
   });
 
   test("stores message and attachment bodies only as encrypted blob references", () => {

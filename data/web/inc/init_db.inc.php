@@ -4,7 +4,7 @@ function init_db_schema()
   try {
     global $pdo;
 
-    $db_version = "31072026_0001";
+    $db_version = "31072026_0002";
 
     $stmt = $pdo->query("SHOW TABLES LIKE 'versions'");
     $num_results = count($stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -1162,6 +1162,8 @@ function init_db_schema()
           "private_key_kdf_params" => "JSON NOT NULL",
           "key_version" => "INT UNSIGNED NOT NULL DEFAULT 1",
           "status" => "ENUM('active','rotated','revoked') NOT NULL DEFAULT 'active'",
+          "rotation_mode" => "ENUM('initial','password_reencrypt','password_reset','recovery_reencrypt','key_rotation') NOT NULL DEFAULT 'initial'",
+          "previous_key_id" => "BIGINT DEFAULT NULL",
           "created" => "DATETIME(0) NOT NULL DEFAULT NOW(0)",
           "rotated" => "DATETIME(0) DEFAULT NULL",
           "revoked" => "DATETIME(0) DEFAULT NULL"
@@ -1177,13 +1179,20 @@ function init_db_schema()
             "username" => array("username"),
             "address" => array("address"),
             "primary_key_id" => array("primary_key_id"),
-            "status" => array("status")
+            "status" => array("status"),
+            "previous_key_id" => array("previous_key_id")
           ),
           "fkey" => array(
             "fk_zero_user_keys_username" => array(
               "col" => "`username`",
               "ref" => "mailbox.username",
               "delete" => "CASCADE",
+              "update" => "NO ACTION"
+            ),
+            "fk_zero_user_keys_previous_key" => array(
+              "col" => "`previous_key_id`",
+              "ref" => "zero_user_keys.id",
+              "delete" => "SET NULL",
               "update" => "NO ACTION"
             )
           )
@@ -1297,7 +1306,7 @@ function init_db_schema()
         "cols" => array(
           "id" => "BIGINT NOT NULL AUTO_INCREMENT",
           "address" => "VARCHAR(255) NOT NULL",
-          "event_type" => "ENUM('created','rotated','revoked','recovered','verified') NOT NULL",
+          "event_type" => "ENUM('created','rotated','revoked','recovered','verified','password_reencrypted','password_reset') NOT NULL",
           "fingerprint" => "VARCHAR(128) NOT NULL",
           "event_payload" => "JSON NOT NULL",
           "previous_event_hash" => "CHAR(64)",

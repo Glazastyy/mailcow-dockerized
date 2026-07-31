@@ -1,4 +1,5 @@
 export type UserKey = {
+  id?: string;
   address: string;
   primaryKeyId: string;
   publicKeyArmored: string;
@@ -7,6 +8,8 @@ export type UserKey = {
   privateKeyKdfParams: Record<string, unknown>;
   keyVersion: number;
   status: "active" | "rotated" | "revoked";
+  rotationMode: "initial" | "password_reencrypt" | "password_reset" | "recovery_reencrypt" | "key_rotation";
+  previousKeyId?: string;
 };
 
 export type PasswordReencryptRequest = {
@@ -28,12 +31,21 @@ export type KeyStore = {
 const clearPasswordFields = ["password", "currentPassword", "newPassword", "passwordHash"] as const;
 const clearPrivateKeyFields = ["privateKey", "secretKey"] as const;
 
-function normalizeKey(key: UserKey, keyVersion: number, status: UserKey["status"]): UserKey {
+function normalizeKey(
+  key: UserKey,
+  keyVersion: number,
+  status: UserKey["status"],
+  rotationMode: UserKey["rotationMode"],
+  previousKeyId?: string
+): UserKey {
   return {
     ...key,
+    id: key.id ?? crypto.randomUUID(),
     address: key.address.toLowerCase(),
     keyVersion,
-    status
+    status,
+    rotationMode,
+    previousKeyId
   };
 }
 
@@ -68,7 +80,7 @@ function rejectClearSecrets(payload: Record<string, unknown>): { ok: true } | { 
 export function createMemoryKeyStore(keys = new Map<string, UserKey[]>()): KeyStore {
   return {
     async saveUserKey(key) {
-      const normalized = normalizeKey(key, key.keyVersion || 1, key.status || "active");
+      const normalized = normalizeKey(key, key.keyVersion || 1, key.status || "active", key.rotationMode ?? "initial", key.previousKeyId);
       const existing = keys.get(normalized.address) ?? [];
 
       if (normalized.status === "active") {
@@ -101,16 +113,24 @@ export function createMemoryKeyStore(keys = new Map<string, UserKey[]>()): KeySt
       }
 
       active.status = "rotated";
+      const previousId = active.id;
 
       const updated = normalizeKey(
         {
-          ...active,
+          address: active.address,
+          primaryKeyId: active.primaryKeyId,
+          publicKeyArmored: active.publicKeyArmored,
           encryptedPrivateKey: request.reencryptedPrivateKey,
           privateKeyKdf: request.privateKeyKdf,
-          privateKeyKdfParams: request.privateKeyKdfParams
+          privateKeyKdfParams: request.privateKeyKdfParams,
+          keyVersion: active.keyVersion,
+          status: active.status,
+          rotationMode: active.rotationMode
         },
         active.keyVersion + 1,
-        "active"
+        "active",
+        "password_reencrypt",
+        previousId
       );
       existing.push(updated);
       keys.set(updated.address, existing);
@@ -125,7 +145,8 @@ export function createMemoryKeyStore(keys = new Map<string, UserKey[]>()): KeySt
         stored.status = "revoked";
       }
 
-      const reset = normalizeKey(key, nextVersion, "active");
+      const previousKeyId = existing.findLast((stored) => stored.status === "revoked")?.id;
+      const reset = normalizeKey(key, nextVersion, "active", "password_reset", previousKeyId);
       existing.push(reset);
       keys.set(address, existing);
       return reset;
@@ -162,7 +183,8 @@ export function validateUserKeyPayload(payload: Record<string, unknown>): { ok: 
       privateKeyKdf: payload.privateKeyKdf as UserKey["privateKeyKdf"],
       privateKeyKdfParams: payload.privateKeyKdfParams as Record<string, unknown>,
       keyVersion: Number(payload.keyVersion ?? 1),
-      status: (payload.status as UserKey["status"]) ?? "active"
+      status: (payload.status as UserKey["status"]) ?? "active",
+      rotationMode: (payload.rotationMode as UserKey["rotationMode"]) ?? "initial"
     }
   };
 }

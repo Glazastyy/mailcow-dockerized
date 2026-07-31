@@ -402,9 +402,13 @@ Adicionar tabelas novas, sem sobrecarregar `mailbox.attributes` para material cr
 - `private_key_kdf_params`
 - `key_version`
 - `status`
+- `rotation_mode`
+- `previous_key_id`
 - `created`
 - `rotated`
 - `revoked`
+
+`rotation_mode` diferencia criação inicial, troca de senha com recriptografia da mesma chave privada, reset destrutivo sem senha atual, recriptografia via recuperação e rotação criptográfica real. `previous_key_id` encadeia as versões para auditoria e key transparency.
 
 ### `zero_recipient_keys`
 
@@ -463,6 +467,8 @@ Fontes: `local`, `wkd`, `autocrypt`, `manual`, `keyserver`.
 - `previous_event_hash`
 - `event_hash`
 - `created`
+
+Eventos mínimos: `created`, `rotated`, `revoked`, `recovered`, `verified`, `password_reencrypted` e `password_reset`.
 
 Essa tabela prepara key transparency local.
 

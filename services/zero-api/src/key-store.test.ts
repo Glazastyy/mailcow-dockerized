@@ -66,7 +66,8 @@ describe("zero-api key store", () => {
       privateKeyKdf: "argon2id",
       privateKeyKdfParams: {},
       keyVersion: 1,
-      status: "active"
+      status: "active",
+      rotationMode: "initial"
     });
 
     expect(await store.getActiveUserKey("alice@example.test")).toEqual(
@@ -87,7 +88,8 @@ describe("zero-api key store", () => {
       privateKeyKdf: "argon2id",
       privateKeyKdfParams: { salt: "old" },
       keyVersion: 1,
-      status: "active"
+      status: "active",
+      rotationMode: "initial"
     });
 
     const updated = await store.reencryptUserKey({
@@ -100,6 +102,7 @@ describe("zero-api key store", () => {
     });
 
     expect(updated).toEqual({
+      id: expect.any(String),
       address: "alice@example.test",
       primaryKeyId: "key",
       publicKeyArmored: "public",
@@ -107,7 +110,9 @@ describe("zero-api key store", () => {
       privateKeyKdf: "argon2id",
       privateKeyKdfParams: { salt: "new" },
       keyVersion: 2,
-      status: "active"
+      status: "active",
+      rotationMode: "password_reencrypt",
+      previousKeyId: expect.any(String)
     });
     expect(await store.getActiveUserKey("alice@example.test")).toEqual(updated);
   });
@@ -122,7 +127,8 @@ describe("zero-api key store", () => {
       privateKeyKdf: "argon2id",
       privateKeyKdfParams: {},
       keyVersion: 1,
-      status: "active"
+      status: "active",
+      rotationMode: "initial"
     });
 
     const reset = await store.resetUserKey({
@@ -133,10 +139,12 @@ describe("zero-api key store", () => {
       privateKeyKdf: "argon2id",
       privateKeyKdfParams: { salt: "new" },
       keyVersion: 1,
-      status: "active"
+      status: "active",
+      rotationMode: "initial"
     });
 
     expect(reset).toEqual({
+      id: expect.any(String),
       address: "alice@example.test",
       primaryKeyId: "new-key",
       publicKeyArmored: "new-public",
@@ -144,7 +152,9 @@ describe("zero-api key store", () => {
       privateKeyKdf: "argon2id",
       privateKeyKdfParams: { salt: "new" },
       keyVersion: 2,
-      status: "active"
+      status: "active",
+      rotationMode: "password_reset",
+      previousKeyId: expect.any(String)
     });
     expect(await store.getActiveUserKey("alice@example.test")).toEqual(reset);
   });
