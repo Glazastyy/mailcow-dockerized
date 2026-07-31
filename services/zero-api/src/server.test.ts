@@ -635,6 +635,7 @@ describe("zero-api handler", () => {
         ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
         recipientKeyId: "bob-key",
         encryptionState: "local_e2ee",
+        flags: [],
         created: expect.any(String)
       });
       expect(readResponse.status).toBe(200);
@@ -657,6 +658,111 @@ describe("zero-api handler", () => {
           recipientKeyId: "bob-key",
           encryptionState: "local_e2ee",
           body: "hello"
+        })
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "cleartext_rejected" });
+  });
+
+  test("moves encrypted message metadata and updates safe flags", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const messageStore = createMemoryMessageStore();
+    const message = await messageStore.save({
+      recipient: "alice@example.test",
+      folder: "inbox",
+      ciphertextBlobId: "blob-id",
+      recipientKeyId: "alice-key",
+      encryptionState: "local_e2ee",
+      flags: ["unread"]
+    });
+    const handler = createHandler(config, { messageStore });
+    const response = await handler(
+      new Request(`http://zero-api/mail/messages/${message.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          folder: "archive",
+          flags: ["seen", "starred"]
+        })
+      })
+    );
+    const body = await response.json();
+    const inbox = await handler(new Request("http://zero-api/mail/messages?recipient=alice@example.test&folder=inbox"));
+    const archive = await handler(new Request("http://zero-api/mail/messages?recipient=alice@example.test&folder=archive"));
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      ...message,
+      folder: "archive",
+      flags: ["seen", "starred"]
+    });
+    expect(await inbox.json()).toEqual({ messages: [] });
+    expect(await archive.json()).toEqual({ messages: [body] });
+    expect(JSON.stringify(body)).not.toContain("body");
+    expect(JSON.stringify(body)).not.toContain("subject");
+  });
+
+  test("persists encrypted message metadata updates across handler instances", async () => {
+    await withTempBlobDir(async (root) => {
+      const config = readConfig({ ZERO_ACCESS_REQUIRED: "y", ZERO_BLOB_DIR: root });
+      const createHandlerInstance = createHandler(config);
+      const createResponse = await createHandlerInstance(
+        new Request("http://zero-api/mail/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            recipient: "alice@example.test",
+            ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
+            recipientKeyId: "alice-key",
+            encryptionState: "local_e2ee",
+            flags: ["unread"]
+          })
+        })
+      );
+      const created = await createResponse.json();
+      const updateHandlerInstance = createHandler(config);
+      const updateResponse = await updateHandlerInstance(
+        new Request(`http://zero-api/mail/messages/${created.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            folder: "trash",
+            flags: ["seen"]
+          })
+        })
+      );
+      const updated = await updateResponse.json();
+      const readHandlerInstance = createHandler(config);
+      const readResponse = await readHandlerInstance(new Request(`http://zero-api/mail/messages/${created.id}`));
+
+      expect(createResponse.status).toBe(201);
+      expect(updateResponse.status).toBe(200);
+      expect(readResponse.status).toBe(200);
+      expect(await readResponse.json()).toEqual(updated);
+    });
+  });
+
+  test("rejects unsafe mailbox metadata updates", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const messageStore = createMemoryMessageStore();
+    const message = await messageStore.save({
+      recipient: "alice@example.test",
+      folder: "inbox",
+      ciphertextBlobId: "blob-id",
+      recipientKeyId: "alice-key",
+      encryptionState: "local_e2ee"
+    });
+    const handler = createHandler(config, { messageStore });
+    const response = await handler(
+      new Request(`http://zero-api/mail/messages/${message.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          folder: "wiretap",
+          flags: ["seen"],
+          subject: "clear subject"
         })
       })
     );
@@ -700,7 +806,8 @@ describe("zero-api handler", () => {
       folder: "inbox",
       ciphertextBlobId: "blob-1",
       recipientKeyId: "alice-key",
-      encryptionState: "local_e2ee"
+      encryptionState: "local_e2ee",
+      flags: ["unread"]
     });
     const second = await messageStore.save({
       recipient: "alice@example.test",

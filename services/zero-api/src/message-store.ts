@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export type MessageRecord = {
@@ -8,10 +8,18 @@ export type MessageRecord = {
   ciphertextBlobId: string;
   recipientKeyId: string;
   encryptionState: "local_e2ee" | "openpgp" | "password_portal";
+  flags: MessageFlag[];
   created: string;
 };
 
-export type MessageInput = Omit<MessageRecord, "id" | "created"> & { folder?: string };
+export type MessageFlag = "unread" | "seen" | "starred" | "answered" | "forwarded";
+
+export type MessageInput = Omit<MessageRecord, "id" | "created" | "folder" | "flags"> & { folder?: string; flags?: MessageFlag[] };
+
+export type MessageUpdate = {
+  folder?: string;
+  flags?: MessageFlag[];
+};
 
 export type MessageListQuery = {
   recipient: string;
@@ -35,11 +43,13 @@ export type MessageStore = {
   get(id: string): Promise<MessageRecord | undefined>;
   list(query: MessageListQuery): Promise<MessageListPage>;
   folders(recipient: string): Promise<FolderSummary[]>;
+  update(id: string, update: MessageUpdate): Promise<MessageRecord | undefined>;
 };
 
 const cleartextFields = ["body", "msg", "html", "text", "subject"] as const;
 const supportedEncryptionStates = ["local_e2ee", "openpgp", "password_portal"] as const;
 const supportedFolders = ["inbox", "sent", "archive", "trash", "spam"] as const;
+const supportedFlags = ["unread", "seen", "starred", "answered", "forwarded"] as const;
 const defaultPageLimit = 50;
 const maxPageLimit = 100;
 
@@ -49,6 +59,7 @@ function createRecord(message: MessageInput): MessageRecord {
     id: crypto.randomUUID(),
     recipient: message.recipient.toLowerCase(),
     folder: message.folder ?? "inbox",
+    flags: message.flags ?? [],
     created: new Date().toISOString()
   };
 }
@@ -67,6 +78,8 @@ function isMessageRecord(value: unknown): value is MessageRecord {
     typeof record.ciphertextBlobId === "string" &&
     typeof record.recipientKeyId === "string" &&
     typeof record.created === "string" &&
+    Array.isArray(record.flags) &&
+    record.flags.every((flag) => supportedFlags.includes(flag as MessageFlag)) &&
     supportedEncryptionStates.includes(record.encryptionState as MessageRecord["encryptionState"])
   );
 }
@@ -108,6 +121,14 @@ function folderSummaries(records: MessageRecord[], recipient: string): FolderSum
   }));
 }
 
+function updateRecord(record: MessageRecord, update: MessageUpdate): MessageRecord {
+  return {
+    ...record,
+    folder: update.folder ?? record.folder,
+    flags: update.flags ?? record.flags
+  };
+}
+
 export function createMemoryMessageStore(messages = new Map<string, MessageRecord>()): MessageStore {
   return {
     async save(message) {
@@ -123,6 +144,17 @@ export function createMemoryMessageStore(messages = new Map<string, MessageRecor
     },
     async folders(recipient) {
       return folderSummaries(Array.from(messages.values()), recipient);
+    },
+    async update(id, update) {
+      const record = messages.get(id);
+
+      if (!record) {
+        return undefined;
+      }
+
+      const updated = updateRecord(record, update);
+      messages.set(id, updated);
+      return updated;
     }
   };
 }
@@ -174,6 +206,24 @@ export function createFileMessageStore(root: string): MessageStore {
     },
     async folders(recipient) {
       return folderSummaries(await readAllRecords(recordsPath), recipient);
+    },
+    async update(id, update) {
+      if (!/^[a-f0-9-]{36}$/.test(id)) {
+        return undefined;
+      }
+
+      const records = await readAllRecords(recordsPath);
+      const index = records.findIndex((record) => record.id === id);
+
+      if (index === -1) {
+        return undefined;
+      }
+
+      const updated = updateRecord(records[index], update);
+      records[index] = updated;
+      await mkdir(directory, { recursive: true });
+      await writeFile(recordsPath, records.map((record) => JSON.stringify(record)).join("\n") + "\n", { encoding: "utf8" });
+      return updated;
     }
   };
 }
@@ -232,6 +282,12 @@ export function validateMessagePayload(payload: Record<string, unknown>): { ok: 
     return { ok: false, error: "unsupported_folder" };
   }
 
+  if (payload.flags !== undefined) {
+    if (!Array.isArray(payload.flags) || !payload.flags.every((flag) => supportedFlags.includes(flag as MessageFlag))) {
+      return { ok: false, error: "unsupported_flag" };
+    }
+  }
+
   return {
     ok: true,
     message: {
@@ -239,7 +295,34 @@ export function validateMessagePayload(payload: Record<string, unknown>): { ok: 
       folder: typeof payload.folder === "string" ? payload.folder : "inbox",
       ciphertextBlobId: String(payload.ciphertextBlobId),
       recipientKeyId: String(payload.recipientKeyId),
-      encryptionState: payload.encryptionState as MessageRecord["encryptionState"]
+      encryptionState: payload.encryptionState as MessageRecord["encryptionState"],
+      flags: Array.isArray(payload.flags) ? (payload.flags as MessageFlag[]) : []
+    }
+  };
+}
+
+export function validateMessageUpdatePayload(payload: Record<string, unknown>): { ok: true; update: MessageUpdate } | { ok: false; error: string } {
+  for (const field of cleartextFields) {
+    if (field in payload && payload[field] !== undefined) {
+      return { ok: false, error: "cleartext_rejected" };
+    }
+  }
+
+  if (payload.folder !== undefined && (typeof payload.folder !== "string" || !supportedFolders.includes(payload.folder as (typeof supportedFolders)[number]))) {
+    return { ok: false, error: "unsupported_folder" };
+  }
+
+  if (payload.flags !== undefined) {
+    if (!Array.isArray(payload.flags) || !payload.flags.every((flag) => supportedFlags.includes(flag as MessageFlag))) {
+      return { ok: false, error: "unsupported_flag" };
+    }
+  }
+
+  return {
+    ok: true,
+    update: {
+      folder: typeof payload.folder === "string" ? payload.folder : undefined,
+      flags: Array.isArray(payload.flags) ? Array.from(new Set(payload.flags as MessageFlag[])) : undefined
     }
   };
 }

@@ -2,7 +2,7 @@ import { readConfig, type ZeroApiConfig } from "./config";
 import { arrayBufferFromBytes, createFileBlobStore, createMemoryBlobStore, type BlobStore } from "./blob-store";
 import { createMemoryKeyStore, validatePasswordReencryptPayload, validateUserKeyPayload, type KeyStore } from "./key-store";
 import { createFileKeyEventStore, createKeyEventCheckpoint, keyEventForUserKey, verifyKeyEventChain, type KeyEventStore } from "./key-event-store";
-import { createFileMessageStore, validateMessagePayload, type MessageStore } from "./message-store";
+import { createFileMessageStore, validateMessagePayload, validateMessageUpdatePayload, type MessageStore } from "./message-store";
 import { createFileAttachmentStore, validateAttachmentPayload, type AttachmentStore } from "./attachment-store";
 import { createFileRecoveryStore, recoveryMethods, validateRecoveryPayload, type RecoveryStore } from "./recovery-store";
 
@@ -376,6 +376,27 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
       }
 
       return jsonResponse(attachment);
+    }
+
+    if (request.method === "PATCH" && url.pathname.startsWith("/mail/messages/")) {
+      if (request.headers.get("content-type") !== "application/json") {
+        return jsonResponse({ error: "json_required" }, 415);
+      }
+
+      const id = url.pathname.slice("/mail/messages/".length);
+      const validation = validateMessageUpdatePayload((await request.json()) as Record<string, unknown>);
+
+      if (!validation.ok) {
+        return jsonResponse({ error: validation.error }, 422);
+      }
+
+      const message = await messageStore.update(id, validation.update);
+
+      if (!message) {
+        return jsonResponse({ error: "not_found" }, 404);
+      }
+
+      return jsonResponse(message);
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/mail/messages/")) {
