@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createMemoryKeyEventStore, keyEventForUserKey } from "./key-event-store";
+import { createMemoryKeyEventStore, keyEventForUserKey, verifyKeyEventChain } from "./key-event-store";
 
 describe("zero-api key events", () => {
   test("stores normalized key events without private key envelopes", async () => {
@@ -123,5 +123,76 @@ describe("zero-api key events", () => {
         keyVersion: 2
       })
     ]);
+  });
+
+  test("verifies an intact event chain", async () => {
+    const store = createMemoryKeyEventStore();
+    await store.append({
+      address: "alice@example.test",
+      eventType: "created",
+      primaryKeyId: "alice-key",
+      keyVersion: 1,
+      rotationMode: "initial"
+    });
+    await store.append({
+      address: "alice@example.test",
+      eventType: "password_reencrypted",
+      primaryKeyId: "alice-key",
+      keyVersion: 2,
+      rotationMode: "password_reencrypt",
+      previousKeyId: "previous-key-row"
+    });
+
+    await expect(verifyKeyEventChain(await store.list("alice@example.test"))).resolves.toEqual({
+      ok: true,
+      eventCount: 2,
+      headEventHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+    });
+  });
+
+  test("detects a tampered event hash", async () => {
+    const store = createMemoryKeyEventStore();
+    await store.append({
+      address: "alice@example.test",
+      eventType: "created",
+      primaryKeyId: "alice-key",
+      keyVersion: 1,
+      rotationMode: "initial"
+    });
+    const events = await store.list("alice@example.test");
+
+    await expect(verifyKeyEventChain([{ ...events[0], eventHash: "0".repeat(64) }])).resolves.toEqual({
+      ok: false,
+      eventCount: 1,
+      error: "event_hash_mismatch",
+      failedAt: 0
+    });
+  });
+
+  test("detects a broken previous event hash link", async () => {
+    const store = createMemoryKeyEventStore();
+    await store.append({
+      address: "alice@example.test",
+      eventType: "created",
+      primaryKeyId: "alice-key",
+      keyVersion: 1,
+      rotationMode: "initial"
+    });
+    await store.append({
+      address: "alice@example.test",
+      eventType: "password_reencrypted",
+      primaryKeyId: "alice-key",
+      keyVersion: 2,
+      rotationMode: "password_reencrypt",
+      previousKeyId: "previous-key-row"
+    });
+    const events = await store.list("alice@example.test");
+
+    await expect(verifyKeyEventChain([events[0], { ...events[1], previousEventHash: "f".repeat(64) }])).resolves.toEqual({
+      ok: false,
+      eventCount: 2,
+      error: "previous_event_hash_mismatch",
+      failedAt: 1
+    });
   });
 });

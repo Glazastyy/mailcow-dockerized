@@ -23,6 +23,10 @@ export type KeyEventStore = {
 
 type KeyEventInput = Omit<KeyEvent, "created" | "previousEventHash" | "eventHash">;
 
+export type KeyEventChainVerification =
+  | { ok: true; eventCount: number; headEventHash?: string }
+  | { ok: false; eventCount: number; error: "event_hash_mismatch" | "previous_event_hash_mismatch"; failedAt: number };
+
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -39,6 +43,17 @@ function canonicalEventPayload(event: KeyEventInput, created: string, previousEv
     previousEventHash,
     created
   });
+}
+
+function eventInputFromStored(event: KeyEvent): KeyEventInput {
+  return {
+    address: event.address,
+    eventType: event.eventType,
+    primaryKeyId: event.primaryKeyId,
+    keyVersion: event.keyVersion,
+    rotationMode: event.rotationMode,
+    previousKeyId: event.previousKeyId
+  };
 }
 
 async function buildStoredEvent(event: KeyEventInput, previousEventHash?: string): Promise<KeyEvent> {
@@ -151,5 +166,39 @@ export function keyEventForUserKey(key: UserKey, eventType: KeyEventType): KeyEv
     keyVersion: key.keyVersion,
     rotationMode: key.rotationMode,
     previousKeyId: key.previousKeyId
+  };
+}
+
+export async function verifyKeyEventChain(events: KeyEvent[]): Promise<KeyEventChainVerification> {
+  let previousEventHash: string | undefined;
+
+  for (const [index, event] of events.entries()) {
+    if (event.previousEventHash !== previousEventHash) {
+      return {
+        ok: false,
+        eventCount: events.length,
+        error: "previous_event_hash_mismatch",
+        failedAt: index
+      };
+    }
+
+    const expectedHash = await sha256(canonicalEventPayload(eventInputFromStored(event), event.created, event.previousEventHash));
+
+    if (event.eventHash !== expectedHash) {
+      return {
+        ok: false,
+        eventCount: events.length,
+        error: "event_hash_mismatch",
+        failedAt: index
+      };
+    }
+
+    previousEventHash = event.eventHash;
+  }
+
+  return {
+    ok: true,
+    eventCount: events.length,
+    headEventHash: previousEventHash
   };
 }
