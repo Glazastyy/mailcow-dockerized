@@ -4,6 +4,7 @@ import { createMemoryKeyStore, validatePasswordReencryptPayload, validateUserKey
 import { createFileKeyEventStore, createKeyEventCheckpoint, keyEventForUserKey, verifyKeyEventChain, type KeyEventStore } from "./key-event-store";
 import { createFileMessageStore, validateMessagePayload, type MessageStore } from "./message-store";
 import { createFileAttachmentStore, validateAttachmentPayload, type AttachmentStore } from "./attachment-store";
+import { createFileRecoveryStore, recoveryMethods, validateRecoveryPayload, type RecoveryStore } from "./recovery-store";
 
 type JsonValue = Record<string, unknown>;
 type HandlerDeps = {
@@ -13,6 +14,7 @@ type HandlerDeps = {
   keyEventStore?: KeyEventStore;
   messageStore?: MessageStore;
   attachmentStore?: AttachmentStore;
+  recoveryStore?: RecoveryStore;
 };
 
 function jsonResponse(body: JsonValue, status = 200): Response {
@@ -44,6 +46,7 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
   const keyEventStore = deps.keyEventStore ?? createFileKeyEventStore(config.blobDir);
   const messageStore = deps.messageStore ?? createFileMessageStore(config.blobDir);
   const attachmentStore = deps.attachmentStore ?? createFileAttachmentStore(config.blobDir);
+  const recoveryStore = deps.recoveryStore ?? createFileRecoveryStore(config.blobDir);
 
   return async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -78,6 +81,64 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
           primaryKeyId: key.primaryKeyId,
           keyVersion: key.keyVersion,
           status: key.status
+        },
+        201
+      );
+    }
+
+    if (request.method === "GET" && url.pathname === "/crypto/bootstrap") {
+      const address = url.searchParams.get("address");
+
+      if (!address) {
+        return jsonResponse({ error: "missing_address" }, 422);
+      }
+
+      const key = await keyStore.getActiveUserKey(address);
+
+      if (!key) {
+        return jsonResponse({ error: "not_found" }, 404);
+      }
+
+      const recoveries = await recoveryStore.list(address);
+
+      return jsonResponse({
+        address: key.address,
+        primaryKeyId: key.primaryKeyId,
+        publicKeyArmored: key.publicKeyArmored,
+        encryptedPrivateKey: key.encryptedPrivateKey,
+        privateKeyKdf: key.privateKeyKdf,
+        privateKeyKdfParams: key.privateKeyKdfParams,
+        keyVersion: key.keyVersion,
+        recoveryConfigured: recoveries.length > 0,
+        recoveryMethods: recoveryMethods(recoveries)
+      });
+    }
+
+    if (request.method === "POST" && url.pathname === "/crypto/recovery") {
+      if (request.headers.get("content-type") !== "application/json") {
+        return jsonResponse({ error: "json_required" }, 415);
+      }
+
+      const validation = validateRecoveryPayload((await request.json()) as Record<string, unknown>);
+
+      if (!validation.ok) {
+        return jsonResponse({ error: validation.error }, 422);
+      }
+
+      const key = await keyStore.getActiveUserKey(validation.recovery.address);
+
+      if (!key) {
+        return jsonResponse({ error: "active_key_not_found" }, 404);
+      }
+
+      const recovery = await recoveryStore.save(validation.recovery);
+
+      return jsonResponse(
+        {
+          address: recovery.address,
+          method: recovery.method,
+          publicHint: recovery.publicHint,
+          created: recovery.created
         },
         201
       );

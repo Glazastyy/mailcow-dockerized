@@ -8,6 +8,7 @@ import { createMemoryKeyStore } from "./key-store";
 import { createMemoryKeyEventStore, type KeyEvent } from "./key-event-store";
 import { createMemoryMessageStore } from "./message-store";
 import { createMemoryAttachmentStore } from "./attachment-store";
+import { createMemoryRecoveryStore } from "./recovery-store";
 
 describe("zero-api config", () => {
   test("requires zero-access mode", () => {
@@ -68,7 +69,7 @@ describe("zero-api handler", () => {
     const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
     const handler = createHandler(config);
 
-    expect((await handler(new Request("http://zero-api/crypto/bootstrap"))).status).toBe(501);
+    expect((await handler(new Request("http://zero-api/crypto/unknown"))).status).toBe(501);
   });
 
   test("accepts only ciphertext blob uploads", async () => {
@@ -193,6 +194,119 @@ describe("zero-api handler", () => {
       })
     ]);
     expect(JSON.stringify(keyEvents)).not.toContain("ciphertext-private-key");
+  });
+
+  test("returns crypto bootstrap material without raw passwords or private keys", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const keyStore = createMemoryKeyStore();
+    const handler = createHandler(config, { keyStore });
+    await keyStore.saveUserKey({
+      address: "Alice@Example.Test",
+      primaryKeyId: "alice-key",
+      publicKeyArmored: "public",
+      encryptedPrivateKey: "sealed-private-key",
+      privateKeyKdf: "argon2id",
+      privateKeyKdfParams: { memory: 65536, salt: "public-salt" },
+      keyVersion: 1,
+      status: "active",
+      rotationMode: "initial"
+    });
+
+    const response = await handler(new Request("http://zero-api/crypto/bootstrap?address=Alice%40Example.Test"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body).toEqual({
+      address: "alice@example.test",
+      primaryKeyId: "alice-key",
+      publicKeyArmored: "public",
+      encryptedPrivateKey: "sealed-private-key",
+      privateKeyKdf: "argon2id",
+      privateKeyKdfParams: { memory: 65536, salt: "public-salt" },
+      keyVersion: 1,
+      recoveryConfigured: false,
+      recoveryMethods: []
+    });
+    expect(JSON.stringify(body)).not.toContain("password");
+    expect(JSON.stringify(body)).not.toContain("clear-private-key");
+  });
+
+  test("requires an address for crypto bootstrap", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config);
+    const response = await handler(new Request("http://zero-api/crypto/bootstrap"));
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "missing_address" });
+  });
+
+  test("stores encrypted recovery packets and reports configured recovery in bootstrap", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const keyStore = createMemoryKeyStore();
+    const handler = createHandler(config, { keyStore, recoveryStore: createMemoryRecoveryStore() });
+    await keyStore.saveUserKey({
+      address: "alice@example.test",
+      primaryKeyId: "alice-key",
+      publicKeyArmored: "public",
+      encryptedPrivateKey: "sealed-private-key",
+      privateKeyKdf: "argon2id",
+      privateKeyKdfParams: { salt: "public-salt" },
+      keyVersion: 1,
+      status: "active",
+      rotationMode: "initial"
+    });
+    const recoveryResponse = await handler(
+      new Request("http://zero-api/crypto/recovery", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "Alice@Example.Test",
+          method: "recovery_phrase",
+          encryptedRecoveryPacket: "sealed-recovery-packet",
+          publicHint: "printed July 2026"
+        })
+      })
+    );
+    const recoveryBody = await recoveryResponse.json();
+    const bootstrapResponse = await handler(new Request("http://zero-api/crypto/bootstrap?address=alice@example.test"));
+    const bootstrapBody = await bootstrapResponse.json();
+
+    expect(recoveryResponse.status).toBe(201);
+    expect(recoveryBody).toEqual({
+      address: "alice@example.test",
+      method: "recovery_phrase",
+      publicHint: "printed July 2026",
+      created: expect.any(String)
+    });
+    expect(bootstrapBody).toEqual(
+      expect.objectContaining({
+        recoveryConfigured: true,
+        recoveryMethods: ["recovery_phrase"]
+      })
+    );
+    expect(JSON.stringify(recoveryBody)).not.toContain("sealed-recovery-packet");
+    expect(JSON.stringify(bootstrapBody)).not.toContain("sealed-recovery-packet");
+  });
+
+  test("rejects raw recovery secrets", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config);
+    const response = await handler(
+      new Request("http://zero-api/crypto/recovery", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "alice@example.test",
+          method: "recovery_phrase",
+          recoveryPhrase: "correct horse battery staple",
+          encryptedRecoveryPacket: "sealed"
+        })
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "clear_recovery_secret_rejected" });
   });
 
   test("re-encrypts private key envelope when the current password is available client-side", async () => {
