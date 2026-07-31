@@ -285,6 +285,31 @@ services:
           aliases:
             - zero-api
 
+    zero-delivery-mailcow:
+      build:
+        context: ./services/zero-delivery
+      depends_on:
+        - zero-api-mailcow
+        - mysql-mailcow
+        - redis-mailcow
+      environment:
+        - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
+        - ZERO_DELIVERY_HOST=0.0.0.0
+        - ZERO_DELIVERY_PORT=2525
+        - TZ=${TZ}
+      expose:
+        - "2525"
+      healthcheck:
+        test: ["CMD", "bun", "/app/src/healthcheck.ts"]
+        interval: 30s
+        timeout: 5s
+        retries: 3
+      restart: always
+      networks:
+        mailcow-network:
+          aliases:
+            - zero-delivery
+
     dovecot-mailcow:
       image: ghcr.io/mailcow/dovecot:2.3.21.1-2
       depends_on:

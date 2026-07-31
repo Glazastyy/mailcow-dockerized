@@ -77,6 +77,16 @@ describe("zero-access compose topology", () => {
     );
   });
 
+  test("docker compose config includes internal zero-delivery", () => {
+    const config = composeConfig();
+    const service = config.services["zero-delivery-mailcow"];
+
+    expect(service).toBeDefined();
+    expect(service.environment.ZERO_ACCESS_REQUIRED).toBe("y");
+    expect(service.expose).toContain("2525");
+    expect(service.ports).toBeUndefined();
+  });
+
   test("legacy mailbox protocols bind to localhost by default", () => {
     const config = composeConfig();
     const ports = config.services["dovecot-mailcow"].ports;
