@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { readConfig } from "./config";
 import { createHandler } from "./server";
 import { createMemoryKeyStore } from "./key-store";
@@ -26,6 +29,16 @@ describe("zero-api config", () => {
 });
 
 describe("zero-api handler", () => {
+  async function withTempBlobDir<T>(run: (root: string) => Promise<T>): Promise<T> {
+    const root = await mkdtemp(join(tmpdir(), "zero-api-"));
+
+    try {
+      return await run(root);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
   test("serves a no-store healthcheck", async () => {
     const config = readConfig({
       ZERO_ACCESS_REQUIRED: "y",
@@ -166,36 +179,38 @@ describe("zero-api handler", () => {
   });
 
   test("stores only encrypted mail message metadata", async () => {
-    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
-    const handler = createHandler(config);
-    const createResponse = await handler(
-      new Request("http://zero-api/mail/messages", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          recipient: "Bob@Example.Test",
-          ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
-          recipientKeyId: "bob-key",
-          encryptionState: "local_e2ee"
+    await withTempBlobDir(async (root) => {
+      const config = readConfig({ ZERO_ACCESS_REQUIRED: "y", ZERO_BLOB_DIR: root });
+      const handler = createHandler(config);
+      const createResponse = await handler(
+        new Request("http://zero-api/mail/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            recipient: "Bob@Example.Test",
+            ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
+            recipientKeyId: "bob-key",
+            encryptionState: "local_e2ee"
+          })
         })
-      })
-    );
-    const created = await createResponse.json();
-    const readResponse = await handler(new Request(`http://zero-api/mail/messages/${created.id}`));
-    const readBody = await readResponse.json();
+      );
+      const created = await createResponse.json();
+      const readResponse = await handler(new Request(`http://zero-api/mail/messages/${created.id}`));
+      const readBody = await readResponse.json();
 
-    expect(createResponse.status).toBe(201);
-    expect(created).toEqual({
-      id: expect.any(String),
-      recipient: "bob@example.test",
-      ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
-      recipientKeyId: "bob-key",
-      encryptionState: "local_e2ee"
+      expect(createResponse.status).toBe(201);
+      expect(created).toEqual({
+        id: expect.any(String),
+        recipient: "bob@example.test",
+        ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
+        recipientKeyId: "bob-key",
+        encryptionState: "local_e2ee"
+      });
+      expect(readResponse.status).toBe(200);
+      expect(readBody).toEqual(created);
+      expect(JSON.stringify(readBody)).not.toContain("body");
+      expect(JSON.stringify(readBody)).not.toContain("hello");
     });
-    expect(readResponse.status).toBe(200);
-    expect(readBody).toEqual(created);
-    expect(JSON.stringify(readBody)).not.toContain("body");
-    expect(JSON.stringify(readBody)).not.toContain("hello");
   });
 
   test("rejects cleartext fields in mail message creation", async () => {
@@ -217,5 +232,31 @@ describe("zero-api handler", () => {
 
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ error: "cleartext_rejected" });
+  });
+
+  test("persists encrypted mail message metadata across handler instances", async () => {
+    await withTempBlobDir(async (root) => {
+      const config = readConfig({ ZERO_ACCESS_REQUIRED: "y", ZERO_BLOB_DIR: root });
+      const createHandlerInstance = createHandler(config);
+      const createResponse = await createHandlerInstance(
+        new Request("http://zero-api/mail/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            recipient: "bob@example.test",
+            ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
+            recipientKeyId: "bob-key",
+            encryptionState: "local_e2ee"
+          })
+        })
+      );
+      const created = await createResponse.json();
+      const readHandlerInstance = createHandler(config);
+      const readResponse = await readHandlerInstance(new Request(`http://zero-api/mail/messages/${created.id}`));
+
+      expect(createResponse.status).toBe(201);
+      expect(readResponse.status).toBe(200);
+      expect(await readResponse.json()).toEqual(created);
+    });
   });
 });

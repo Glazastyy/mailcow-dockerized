@@ -1,7 +1,7 @@
 import { readConfig, type ZeroApiConfig } from "./config";
 import { createFileBlobStore, createMemoryBlobStore, type BlobStore } from "./blob-store";
 import { createMemoryKeyStore, validateUserKeyPayload, type KeyStore } from "./key-store";
-import { createMemoryMessageStore, validateMessagePayload, type MessageStore } from "./message-store";
+import { createFileMessageStore, validateMessagePayload, type MessageStore } from "./message-store";
 
 type JsonValue = Record<string, unknown>;
 type HandlerDeps = {
@@ -28,7 +28,7 @@ export function createHandler(config: ZeroApiConfig, deps: HandlerDeps = {}) {
 export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps = {}) {
   const blobStore = deps.blobStore ?? (deps.blobs ? createMemoryBlobStore(deps.blobs) : createFileBlobStore(config.blobDir));
   const keyStore = deps.keyStore ?? createMemoryKeyStore();
-  const messageStore = deps.messageStore ?? createMemoryMessageStore();
+  const messageStore = deps.messageStore ?? createFileMessageStore(config.blobDir);
 
   return async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url);
