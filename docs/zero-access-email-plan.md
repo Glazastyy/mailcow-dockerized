@@ -177,6 +177,7 @@ Contratos iniciais da API:
 - `POST /crypto/recovery`: cadastra pacote de recuperação.
 - `GET /keys/local/:address`: resolve chave pública local.
 - `GET /recipients/resolve/:address`: resolve mailbox, alias e catch-all para destinatários finais locais com chave ativa, retornando somente endereços normalizados.
+- `POST /recipients/routes`: cadastra rota local de alias ou catch-all para o diretório zero-access, sem expor material de chave.
 - `GET /keys/wkd/:address`: endpoint interno de montagem WKD.
 - `GET /events/key/:address`: retorna cadeia pública de eventos de chave para auditoria.
 - `GET /events/key/:address/verify`: verifica hash e encadeamento da cadeia pública de eventos de chave.
@@ -671,7 +672,7 @@ Tarefas:
 - Integrar Rspamd antes da persistência.
 - Criptografar inbound externo para chave pública do destinatário.
 - Persistir metadados mínimos.
-- Tratar alias simples e múltiplos destinatários. Iniciado com `RecipientResolver`, expansão de alias/catch-all, endpoint `zero-api GET /recipients/resolve/:address`, resolver HTTP padrão no `zero-delivery`, fan-out `recipients[]`, resolução all-or-nothing de chaves e envelope/blob separado por destinatário.
+- Tratar alias simples e múltiplos destinatários. Iniciado com `RecipientResolver`, expansão de alias/catch-all, `POST /recipients/routes`, store persistente JSONL do diretório local, endpoint `zero-api GET /recipients/resolve/:address`, resolver HTTP padrão no `zero-delivery`, fan-out `recipients[]`, resolução all-or-nothing de chaves e envelope/blob separado por destinatário.
 - Adicionar teste SMTP real com mensagem externa.
 
 Saída esperada:

@@ -9,6 +9,7 @@ import { createMemoryKeyEventStore, type KeyEvent } from "./key-event-store";
 import { createMemoryMessageStore } from "./message-store";
 import { createMemoryAttachmentStore } from "./attachment-store";
 import { createMemoryRecoveryStore } from "./recovery-store";
+import { createMemoryRecipientDirectory } from "./recipient-directory";
 
 describe("zero-api config", () => {
   test("requires zero-access mode", () => {
@@ -202,6 +203,13 @@ describe("zero-api handler", () => {
     const handler = createHandler(config, {
       keyStore,
       recipientDirectory: {
+        async save(route) {
+          return {
+            ...route,
+            id: crypto.randomUUID(),
+            created: new Date().toISOString()
+          };
+        },
         async resolve(address) {
           if (address === "team@example.test") {
             return ["Alice@Example.Test", "Bob@Example.Test"];
@@ -251,6 +259,13 @@ describe("zero-api handler", () => {
     const handler = createHandler(config, {
       keyStore,
       recipientDirectory: {
+        async save(route) {
+          return {
+            ...route,
+            id: crypto.randomUUID(),
+            created: new Date().toISOString()
+          };
+        },
         async resolve() {
           return ["alice@example.test", "missing@example.test"];
         }
@@ -272,6 +287,67 @@ describe("zero-api handler", () => {
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "recipient_unresolved", recipient: "missing@example.test" });
+  });
+
+  test("stores recipient routes and resolves catch-all routes through active keys", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const keyStore = createMemoryKeyStore();
+    const recipientDirectory = createMemoryRecipientDirectory();
+    const handler = createHandler(config, {
+      keyStore,
+      recipientDirectory
+    });
+    await keyStore.saveUserKey({
+      address: "catchall@example.test",
+      primaryKeyId: "catchall-key",
+      publicKeyArmored: "catchall-public",
+      encryptedPrivateKey: "catchall-sealed-private-key",
+      privateKeyKdf: "argon2id",
+      privateKeyKdfParams: { salt: "catchall-public-salt" },
+      keyVersion: 1,
+      status: "active",
+      rotationMode: "initial"
+    });
+
+    const createResponse = await handler(
+      new Request("http://zero-api/recipients/routes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "*@Example.Test",
+          recipients: ["Catchall@Example.Test"],
+          kind: "catch_all"
+        })
+      })
+    );
+    const resolveResponse = await handler(new Request("http://zero-api/recipients/resolve/anything%40example.test"));
+
+    expect(createResponse.status).toBe(201);
+    expect(await createResponse.json()).toEqual({
+      address: "*@example.test",
+      recipients: ["catchall@example.test"],
+      kind: "catch_all"
+    });
+    expect(resolveResponse.status).toBe(200);
+    expect(await resolveResponse.json()).toEqual({
+      address: "anything@example.test",
+      recipients: ["catchall@example.test"]
+    });
+  });
+
+  test("rejects recipient routes with non-json payloads", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config, { recipientDirectory: createMemoryRecipientDirectory() });
+    const response = await handler(
+      new Request("http://zero-api/recipients/routes", {
+        method: "POST",
+        headers: { "content-type": "text/plain" },
+        body: "team@example.test"
+      })
+    );
+
+    expect(response.status).toBe(415);
+    expect(await response.json()).toEqual({ error: "json_required" });
   });
 
   test("returns crypto bootstrap material without raw passwords or private keys", async () => {

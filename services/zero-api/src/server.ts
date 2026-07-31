@@ -5,11 +5,9 @@ import { createFileKeyEventStore, createKeyEventCheckpoint, keyEventForUserKey, 
 import { createFileMessageStore, validateMessagePayload, validateMessageUpdatePayload, type MessageStore } from "./message-store";
 import { createFileAttachmentStore, validateAttachmentPayload, type AttachmentStore } from "./attachment-store";
 import { createFileRecoveryStore, recoveryMethods, validateRecoveryPayload, type RecoveryStore } from "./recovery-store";
+import { createFileRecipientDirectory, createMemoryRecipientDirectory, validateRecipientRoutePayload, type RecipientDirectory } from "./recipient-directory";
 
 type JsonValue = Record<string, unknown>;
-type RecipientDirectory = {
-  resolve(address: string): Promise<string[] | undefined>;
-};
 type HandlerDeps = {
   blobStore?: BlobStore;
   blobs?: Map<string, Uint8Array>;
@@ -40,14 +38,6 @@ function ciphertextResponse(data: Uint8Array): Response {
   });
 }
 
-function createLocalRecipientDirectory(): RecipientDirectory {
-  return {
-    async resolve(address) {
-      return [address.toLowerCase()];
-    }
-  };
-}
-
 export function createHandler(config: ZeroApiConfig, deps: HandlerDeps = {}) {
   return createHandlerWithDeps(config, deps);
 }
@@ -59,7 +49,7 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
   const messageStore = deps.messageStore ?? createFileMessageStore(config.blobDir);
   const attachmentStore = deps.attachmentStore ?? createFileAttachmentStore(config.blobDir);
   const recoveryStore = deps.recoveryStore ?? createFileRecoveryStore(config.blobDir);
-  const recipientDirectory = deps.recipientDirectory ?? createLocalRecipientDirectory();
+  const recipientDirectory = deps.recipientDirectory ?? (deps.blobs ? createMemoryRecipientDirectory() : createFileRecipientDirectory(config.blobDir));
 
   return async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -251,6 +241,29 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
         address,
         recipients
       });
+    }
+
+    if (request.method === "POST" && url.pathname === "/recipients/routes") {
+      if (request.headers.get("content-type") !== "application/json") {
+        return jsonResponse({ error: "json_required" }, 415);
+      }
+
+      const validation = validateRecipientRoutePayload((await request.json()) as Record<string, unknown>);
+
+      if (!validation.ok) {
+        return jsonResponse({ error: validation.error }, 422);
+      }
+
+      const route = await recipientDirectory.save(validation.route);
+
+      return jsonResponse(
+        {
+          address: route.address,
+          recipients: route.recipients,
+          kind: route.kind
+        },
+        201
+      );
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/events/key/") && url.pathname.endsWith("/verify")) {
