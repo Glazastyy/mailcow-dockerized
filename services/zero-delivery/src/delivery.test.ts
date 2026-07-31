@@ -127,7 +127,7 @@ describe("zero-delivery handler", () => {
     );
 
     expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ ok: false, error: "recipient_key_required" });
+    expect(await response.json()).toEqual({ ok: false, error: "recipient_key_required", recipient: "bob@example.test" });
   });
 
   test("stores delivery after resolving recipient key", async () => {
@@ -218,6 +218,108 @@ describe("zero-delivery handler", () => {
         encryptionState: "local_e2ee"
       }
     ]);
+  });
+
+  test("fans out inline ciphertext delivery to multiple local recipients", async () => {
+    const stored: unknown[] = [];
+    const uploaded: Uint8Array[] = [];
+    const resolved: string[] = [];
+    const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientKeyResolver: {
+        async resolve(address) {
+          resolved.push(address);
+          return { address, primaryKeyId: `${address}-key` };
+        }
+      },
+      ciphertextBlobSink: {
+        async store(ciphertext) {
+          uploaded.push(ciphertext);
+          return { id: `uploaded-blob-${uploaded.length}` };
+        }
+      },
+      messageSink: {
+        async store(message) {
+          stored.push(message);
+        }
+      }
+    });
+    const response = await handler(
+      new Request("http://zero-delivery/deliver", {
+        method: "POST",
+        body: JSON.stringify({
+          recipients: ["alice@example.test", "bob@example.test"],
+          ciphertext: Buffer.from([9, 9, 9]).toString("base64"),
+          encryptionState: "local_e2ee"
+        })
+      })
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      deliveries: [
+        { recipient: "alice@example.test", ciphertextBlobId: "uploaded-blob-1" },
+        { recipient: "bob@example.test", ciphertextBlobId: "uploaded-blob-2" }
+      ]
+    });
+    expect(resolved).toEqual(["alice@example.test", "bob@example.test"]);
+    expect(uploaded).toEqual([new Uint8Array([9, 9, 9]), new Uint8Array([9, 9, 9])]);
+    expect(stored).toEqual([
+      {
+        recipient: "alice@example.test",
+        ciphertextBlobId: "uploaded-blob-1",
+        recipientKeyId: "alice@example.test-key",
+        encryptionState: "local_e2ee"
+      },
+      {
+        recipient: "bob@example.test",
+        ciphertextBlobId: "uploaded-blob-2",
+        recipientKeyId: "bob@example.test-key",
+        encryptionState: "local_e2ee"
+      }
+    ]);
+  });
+
+  test("does not store partial multi-recipient delivery when one key is missing", async () => {
+    const uploaded: Uint8Array[] = [];
+    const stored: unknown[] = [];
+    const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientKeyResolver: {
+        async resolve(address) {
+          if (address === "bob@example.test") {
+            return undefined;
+          }
+
+          return { address, primaryKeyId: `${address}-key` };
+        }
+      },
+      ciphertextBlobSink: {
+        async store(ciphertext) {
+          uploaded.push(ciphertext);
+          return { id: `uploaded-blob-${uploaded.length}` };
+        }
+      },
+      messageSink: {
+        async store(message) {
+          stored.push(message);
+        }
+      }
+    });
+    const response = await handler(
+      new Request("http://zero-delivery/deliver", {
+        method: "POST",
+        body: JSON.stringify({
+          recipients: ["alice@example.test", "bob@example.test"],
+          ciphertext: Buffer.from([9, 9, 9]).toString("base64"),
+          encryptionState: "local_e2ee"
+        })
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ ok: false, error: "recipient_key_required", recipient: "bob@example.test" });
+    expect(uploaded).toEqual([]);
+    expect(stored).toEqual([]);
   });
 
   test("does not upload inline ciphertext when cleartext fields are present", async () => {

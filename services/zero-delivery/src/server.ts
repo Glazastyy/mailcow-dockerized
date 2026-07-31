@@ -4,8 +4,8 @@ import {
   createHttpCiphertextBlobSink,
   createHttpRecipientKeyResolver,
   decodeCiphertext,
+  deliveryRecipients,
   hasCleartextFields,
-  validateResolvedDelivery,
   type CiphertextBlobSink,
   type DeliveryRequest,
   type MessageSink,
@@ -51,37 +51,66 @@ export function createHandler(config: ZeroDeliveryConfig, deps: HandlerDeps = {}
         return jsonResponse({ ok: false, error: "cleartext_rejected" }, 422);
       }
 
-      if (!body.ciphertextBlobId && body.ciphertext) {
-        const ciphertext = decodeCiphertext(body.ciphertext);
+      const recipients = deliveryRecipients(body);
 
-        if (!ciphertext) {
+      if (recipients.length === 0) {
+        return jsonResponse({ ok: false, error: "recipient_key_required" }, 422);
+      }
+
+      const recipientKeys = [];
+
+      for (const recipient of recipients) {
+        const key = await recipientKeyResolver.resolve(recipient);
+
+        if (!key) {
+          return jsonResponse({ ok: false, error: "recipient_key_required", recipient }, 422);
+        }
+
+        recipientKeys.push(key);
+      }
+
+      const inlineCiphertext = body.ciphertext ? decodeCiphertext(body.ciphertext) : undefined;
+
+      if (!body.ciphertextBlobId && !inlineCiphertext) {
+        return jsonResponse({ ok: false, error: "ciphertext_required" }, 422);
+      }
+
+      if (!["local_e2ee", "openpgp", "password_portal"].includes(body.encryptionState)) {
+        return jsonResponse({ ok: false, error: "unsupported_encryption_state" }, 422);
+      }
+
+      const deliveries = [];
+
+      for (const key of recipientKeys) {
+        let ciphertextBlobId = body.ciphertextBlobId;
+
+        if (!ciphertextBlobId && inlineCiphertext) {
+          const blob = await ciphertextBlobSink.store(inlineCiphertext);
+          ciphertextBlobId = blob.id;
+        }
+
+        if (!ciphertextBlobId) {
           return jsonResponse({ ok: false, error: "ciphertext_required" }, 422);
         }
 
-        const blob = await ciphertextBlobSink.store(ciphertext);
-        body = {
-          ...body,
-          ciphertext: undefined,
-          ciphertextBlobId: blob.id
+        const accepted = {
+          recipient: key.address,
+          ciphertextBlobId,
+          recipientKeyId: key.primaryKeyId,
+          encryptionState: body.encryptionState
         };
+        await messageSink.store(accepted);
+        deliveries.push({
+          recipient: accepted.recipient,
+          ciphertextBlobId: accepted.ciphertextBlobId
+        });
       }
 
-      const result = await validateResolvedDelivery(body, recipientKeyResolver);
-
-      if (!result.ok) {
-        return jsonResponse(result, 422);
+      if (deliveries.length === 1) {
+        return jsonResponse({ ok: true, ...deliveries[0] }, 202);
       }
 
-      await messageSink.store(result.accepted);
-
-      return jsonResponse(
-        {
-          ok: true,
-          recipient: result.recipient,
-          ciphertextBlobId: result.ciphertextBlobId
-        },
-        202
-      );
+      return jsonResponse({ ok: true, deliveries }, 202);
     }
 
     return jsonResponse({ error: "not_found" }, 404);

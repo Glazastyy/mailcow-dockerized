@@ -1,7 +1,8 @@
 import { Buffer } from "node:buffer";
 
 export type DeliveryRequest = {
-  recipient: string;
+  recipient?: string;
+  recipients?: string[];
   ciphertextBlobId?: string;
   ciphertext?: string;
   recipientKeyId?: string;
@@ -49,6 +50,10 @@ export function validateDelivery(request: DeliveryRequest): DeliveryResult {
     }
   }
 
+  if (!request.recipient) {
+    return { ok: false, error: "recipient_key_required" };
+  }
+
   if (!request.recipientKeyId) {
     return { ok: false, error: "recipient_key_required" };
   }
@@ -79,12 +84,28 @@ export function validateDelivery(request: DeliveryRequest): DeliveryResult {
 }
 
 export async function validateResolvedDelivery(request: DeliveryRequest, resolver: RecipientKeyResolver): Promise<DeliveryResult> {
+  if (!request.recipient) {
+    return { ok: false, error: "recipient_key_required" };
+  }
+
   const key = await resolver.resolve(request.recipient);
 
   return validateDelivery({
     ...request,
     recipientKeyId: key?.primaryKeyId
   });
+}
+
+export function deliveryRecipients(request: DeliveryRequest): string[] {
+  if (Array.isArray(request.recipients)) {
+    return Array.from(new Set(request.recipients.filter((recipient) => typeof recipient === "string" && recipient.length > 0)));
+  }
+
+  if (typeof request.recipient === "string" && request.recipient.length > 0) {
+    return [request.recipient];
+  }
+
+  return [];
 }
 
 export function hasCleartextFields(request: DeliveryRequest): boolean {
