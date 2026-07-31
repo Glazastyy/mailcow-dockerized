@@ -2,8 +2,8 @@ import { readConfig, type ZeroDeliveryConfig } from "./config";
 import {
   createHttpMessageSink,
   createHttpCiphertextBlobSink,
+  createHttpRecipientResolver,
   createHttpRecipientKeyResolver,
-  createPassthroughRecipientResolver,
   decodeCiphertext,
   deliveryRecipients,
   hasCleartextFields,
@@ -33,7 +33,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 export function createHandler(config: ZeroDeliveryConfig, deps: HandlerDeps = {}) {
-  const recipientResolver = deps.recipientResolver ?? createPassthroughRecipientResolver();
+  const recipientResolver = deps.recipientResolver ?? createHttpRecipientResolver(config.zeroApiBaseUrl);
   const recipientKeyResolver = deps.recipientKeyResolver ?? createHttpRecipientKeyResolver(config.zeroApiBaseUrl);
   const messageSink = deps.messageSink ?? createHttpMessageSink(config.zeroApiBaseUrl);
   const ciphertextBlobSink = deps.ciphertextBlobSink ?? createHttpCiphertextBlobSink(config.zeroApiBaseUrl);

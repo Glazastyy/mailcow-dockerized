@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { readConfig } from "./config";
-import { createHttpCiphertextBlobSink, createStaticRecipientResolver, resolveDeliveryRecipients, validateDelivery, validateResolvedDelivery } from "./delivery";
+import {
+  createHttpCiphertextBlobSink,
+  createHttpRecipientResolver,
+  createPassthroughRecipientResolver,
+  createStaticRecipientResolver,
+  resolveDeliveryRecipients,
+  validateDelivery,
+  validateResolvedDelivery
+} from "./delivery";
 import { createHandler } from "./server";
 
 describe("zero-delivery config", () => {
@@ -123,6 +131,7 @@ describe("zero-delivery handler", () => {
 
   test("rejects delivery when zero-api has no recipient key", async () => {
     const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientResolver: createPassthroughRecipientResolver(),
       recipientKeyResolver: {
         async resolve() {
           return undefined;
@@ -147,6 +156,7 @@ describe("zero-delivery handler", () => {
   test("stores delivery after resolving recipient key", async () => {
     const stored: unknown[] = [];
     const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientResolver: createPassthroughRecipientResolver(),
       recipientKeyResolver: {
         async resolve(address) {
           return { address, primaryKeyId: "bob-key" };
@@ -189,6 +199,7 @@ describe("zero-delivery handler", () => {
     const stored: unknown[] = [];
     const uploaded: Uint8Array[] = [];
     const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientResolver: createPassthroughRecipientResolver(),
       recipientKeyResolver: {
         async resolve(address) {
           return { address, primaryKeyId: "bob-key" };
@@ -239,6 +250,7 @@ describe("zero-delivery handler", () => {
     const uploaded: Uint8Array[] = [];
     const resolved: string[] = [];
     const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientResolver: createPassthroughRecipientResolver(),
       recipientKeyResolver: {
         async resolve(address) {
           resolved.push(address);
@@ -356,6 +368,7 @@ describe("zero-delivery handler", () => {
     const uploaded: Uint8Array[] = [];
     const stored: unknown[] = [];
     const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientResolver: createPassthroughRecipientResolver(),
       recipientKeyResolver: {
         async resolve(address) {
           if (address === "bob@example.test") {
@@ -447,6 +460,25 @@ describe("zero-delivery handler", () => {
     expect(requests[0].headers.get("content-type")).toBe("application/octet-stream");
     expect(requests[0].headers.get("x-zero-blob-kind")).toBe("ciphertext");
     expect(new Uint8Array(await requests[0].arrayBuffer())).toEqual(new Uint8Array([7, 8, 9]));
+  });
+
+  test("resolves delivery recipients through zero-api", async () => {
+    const requests: Request[] = [];
+    const resolver = createHttpRecipientResolver("http://zero-api", async (request) => {
+      requests.push(request);
+      return new Response(JSON.stringify({ recipients: ["alice@example.test", "bob@example.test"] }), { status: 200 });
+    });
+
+    await expect(resolver.resolve("Team@Example.Test")).resolves.toEqual(["alice@example.test", "bob@example.test"]);
+    expect(requests).toHaveLength(1);
+    expect(requests[0].url).toBe("http://zero-api/recipients/resolve/Team%40Example.Test");
+    expect(requests[0].method).toBe("GET");
+  });
+
+  test("treats zero-api missing recipient resolution as unresolved", async () => {
+    const resolver = createHttpRecipientResolver("http://zero-api", async () => new Response(JSON.stringify({ error: "not_found" }), { status: 404 }));
+
+    await expect(resolver.resolve("missing@example.test")).resolves.toBeUndefined();
   });
 
   test("does not store delivery with cleartext fields", async () => {

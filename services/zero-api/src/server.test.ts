@@ -196,6 +196,84 @@ describe("zero-api handler", () => {
     expect(JSON.stringify(keyEvents)).not.toContain("ciphertext-private-key");
   });
 
+  test("resolves local recipients and aliases only to active keyed mailboxes", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const keyStore = createMemoryKeyStore();
+    const handler = createHandler(config, {
+      keyStore,
+      recipientDirectory: {
+        async resolve(address) {
+          if (address === "team@example.test") {
+            return ["Alice@Example.Test", "Bob@Example.Test"];
+          }
+
+          return [address];
+        }
+      }
+    });
+    await keyStore.saveUserKey({
+      address: "alice@example.test",
+      primaryKeyId: "alice-key",
+      publicKeyArmored: "alice-public",
+      encryptedPrivateKey: "alice-sealed-private-key",
+      privateKeyKdf: "argon2id",
+      privateKeyKdfParams: { salt: "alice-public-salt" },
+      keyVersion: 1,
+      status: "active",
+      rotationMode: "initial"
+    });
+    await keyStore.saveUserKey({
+      address: "bob@example.test",
+      primaryKeyId: "bob-key",
+      publicKeyArmored: "bob-public",
+      encryptedPrivateKey: "bob-sealed-private-key",
+      privateKeyKdf: "argon2id",
+      privateKeyKdfParams: { salt: "bob-public-salt" },
+      keyVersion: 1,
+      status: "active",
+      rotationMode: "initial"
+    });
+
+    const response = await handler(new Request("http://zero-api/recipients/resolve/Team%40Example.Test"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      address: "team@example.test",
+      recipients: ["alice@example.test", "bob@example.test"]
+    });
+    expect(JSON.stringify(body)).not.toContain("sealed-private-key");
+  });
+
+  test("rejects recipient resolution when any expanded recipient has no active key", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const keyStore = createMemoryKeyStore();
+    const handler = createHandler(config, {
+      keyStore,
+      recipientDirectory: {
+        async resolve() {
+          return ["alice@example.test", "missing@example.test"];
+        }
+      }
+    });
+    await keyStore.saveUserKey({
+      address: "alice@example.test",
+      primaryKeyId: "alice-key",
+      publicKeyArmored: "alice-public",
+      encryptedPrivateKey: "alice-sealed-private-key",
+      privateKeyKdf: "argon2id",
+      privateKeyKdfParams: { salt: "alice-public-salt" },
+      keyVersion: 1,
+      status: "active",
+      rotationMode: "initial"
+    });
+
+    const response = await handler(new Request("http://zero-api/recipients/resolve/team@example.test"));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "recipient_unresolved", recipient: "missing@example.test" });
+  });
+
   test("returns crypto bootstrap material without raw passwords or private keys", async () => {
     const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
     const keyStore = createMemoryKeyStore();

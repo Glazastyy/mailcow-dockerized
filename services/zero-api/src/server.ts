@@ -7,6 +7,9 @@ import { createFileAttachmentStore, validateAttachmentPayload, type AttachmentSt
 import { createFileRecoveryStore, recoveryMethods, validateRecoveryPayload, type RecoveryStore } from "./recovery-store";
 
 type JsonValue = Record<string, unknown>;
+type RecipientDirectory = {
+  resolve(address: string): Promise<string[] | undefined>;
+};
 type HandlerDeps = {
   blobStore?: BlobStore;
   blobs?: Map<string, Uint8Array>;
@@ -15,6 +18,7 @@ type HandlerDeps = {
   messageStore?: MessageStore;
   attachmentStore?: AttachmentStore;
   recoveryStore?: RecoveryStore;
+  recipientDirectory?: RecipientDirectory;
 };
 
 function jsonResponse(body: JsonValue, status = 200): Response {
@@ -36,6 +40,14 @@ function ciphertextResponse(data: Uint8Array): Response {
   });
 }
 
+function createLocalRecipientDirectory(): RecipientDirectory {
+  return {
+    async resolve(address) {
+      return [address.toLowerCase()];
+    }
+  };
+}
+
 export function createHandler(config: ZeroApiConfig, deps: HandlerDeps = {}) {
   return createHandlerWithDeps(config, deps);
 }
@@ -47,6 +59,7 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
   const messageStore = deps.messageStore ?? createFileMessageStore(config.blobDir);
   const attachmentStore = deps.attachmentStore ?? createFileAttachmentStore(config.blobDir);
   const recoveryStore = deps.recoveryStore ?? createFileRecoveryStore(config.blobDir);
+  const recipientDirectory = deps.recipientDirectory ?? createLocalRecipientDirectory();
 
   return async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -209,6 +222,34 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
         primaryKeyId: key.primaryKeyId,
         publicKeyArmored: key.publicKeyArmored,
         keyVersion: key.keyVersion
+      });
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/recipients/resolve/")) {
+      const address = decodeURIComponent(url.pathname.slice("/recipients/resolve/".length)).toLowerCase();
+      const expanded = await recipientDirectory.resolve(address);
+
+      if (!expanded || expanded.length === 0) {
+        return jsonResponse({ error: "recipient_unresolved", recipient: address }, 404);
+      }
+
+      const recipients = Array.from(new Set(expanded.filter((recipient) => typeof recipient === "string" && recipient.length > 0).map((recipient) => recipient.toLowerCase())));
+
+      if (recipients.length === 0) {
+        return jsonResponse({ error: "recipient_unresolved", recipient: address }, 404);
+      }
+
+      for (const recipient of recipients) {
+        const key = await keyStore.getActiveUserKey(recipient);
+
+        if (!key) {
+          return jsonResponse({ error: "recipient_unresolved", recipient }, 404);
+        }
+      }
+
+      return jsonResponse({
+        address,
+        recipients
       });
     }
 

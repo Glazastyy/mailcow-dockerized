@@ -159,6 +159,36 @@ export function createStaticRecipientResolver(aliases: Record<string, string[]>)
   };
 }
 
+export function createHttpRecipientResolver(baseUrl: string, fetchFn: FetchRequest = fetch): RecipientResolver {
+  return {
+    async resolve(address) {
+      const response = await fetchFn(new Request(`${baseUrl}/recipients/resolve/${encodeURIComponent(address)}`));
+
+      if (response.status === 404) {
+        return undefined;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Recipient resolution failed with status ${response.status}`);
+      }
+
+      const body = (await response.json()) as { recipients?: unknown };
+
+      if (!Array.isArray(body.recipients)) {
+        throw new Error("Recipient resolution response did not include recipients");
+      }
+
+      const recipients = body.recipients.filter((recipient): recipient is string => typeof recipient === "string" && recipient.length > 0).map((recipient) => recipient.toLowerCase());
+
+      if (recipients.length === 0) {
+        return undefined;
+      }
+
+      return Array.from(new Set(recipients));
+    }
+  };
+}
+
 export function hasCleartextFields(request: DeliveryRequest): boolean {
   const payload = request as unknown as Record<string, unknown>;
   return cleartextFields.some((field) => field in payload && payload[field] !== undefined);
