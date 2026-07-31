@@ -85,4 +85,43 @@ describe("zero-api key events", () => {
     expect(bob.eventHash).toMatch(/^[a-f0-9]{64}$/);
     expect(bob.previousEventHash).toBeUndefined();
   });
+
+  test("lists events for one address in append order", async () => {
+    const store = createMemoryKeyEventStore();
+    await store.append({
+      address: "alice@example.test",
+      eventType: "created",
+      primaryKeyId: "alice-key",
+      keyVersion: 1,
+      rotationMode: "initial"
+    });
+    await store.append({
+      address: "bob@example.test",
+      eventType: "created",
+      primaryKeyId: "bob-key",
+      keyVersion: 1,
+      rotationMode: "initial"
+    });
+    await store.append({
+      address: "alice@example.test",
+      eventType: "password_reencrypted",
+      primaryKeyId: "alice-key",
+      keyVersion: 2,
+      rotationMode: "password_reencrypt",
+      previousKeyId: "previous-key-row"
+    });
+
+    await expect(store.list("Alice@Example.Test")).resolves.toEqual([
+      expect.objectContaining({
+        address: "alice@example.test",
+        eventType: "created",
+        keyVersion: 1
+      }),
+      expect.objectContaining({
+        address: "alice@example.test",
+        eventType: "password_reencrypted",
+        keyVersion: 2
+      })
+    ]);
+  });
 });

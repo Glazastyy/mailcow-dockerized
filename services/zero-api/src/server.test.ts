@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { readConfig } from "./config";
 import { createHandler } from "./server";
 import { createMemoryKeyStore } from "./key-store";
+import { createMemoryKeyEventStore } from "./key-event-store";
 
 describe("zero-api config", () => {
   test("requires zero-access mode", () => {
@@ -351,6 +352,74 @@ describe("zero-api handler", () => {
     ]);
     expect(JSON.stringify(keyEvents)).not.toContain("old-envelope");
     expect(JSON.stringify(keyEvents)).not.toContain("new-envelope");
+  });
+
+  test("returns the public key event chain for an address", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const keyStore = createMemoryKeyStore();
+    const keyEventStore = createMemoryKeyEventStore();
+    const handler = createHandler(config, { keyStore, keyEventStore });
+    await handler(
+      new Request("http://zero-api/crypto/keys", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "Alice@Example.Test",
+          primaryKeyId: "alice-key",
+          publicKeyArmored: "public",
+          encryptedPrivateKey: "old-envelope",
+          privateKeyKdf: "argon2id",
+          privateKeyKdfParams: { salt: "old" },
+          keyVersion: 1
+        })
+      })
+    );
+    await handler(
+      new Request("http://zero-api/crypto/password/reencrypt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "alice@example.test",
+          currentPrimaryKeyId: "alice-key",
+          reencryptedPrivateKey: "new-envelope",
+          privateKeyKdf: "argon2id",
+          privateKeyKdfParams: { salt: "new" },
+          currentPrivateKeyProof: "signature"
+        })
+      })
+    );
+
+    const response = await handler(new Request("http://zero-api/events/key/Alice%40Example.Test"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body).toEqual({
+      address: "alice@example.test",
+      events: [
+        expect.objectContaining({
+          address: "alice@example.test",
+          eventType: "created",
+          primaryKeyId: "alice-key",
+          keyVersion: 1,
+          rotationMode: "initial",
+          eventHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+        }),
+        expect.objectContaining({
+          address: "alice@example.test",
+          eventType: "password_reencrypted",
+          primaryKeyId: "alice-key",
+          keyVersion: 2,
+          rotationMode: "password_reencrypt",
+          previousEventHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          eventHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+        })
+      ]
+    });
+    expect(body.events[1].previousEventHash).toBe(body.events[0].eventHash);
+    expect(JSON.stringify(body)).not.toContain("old-envelope");
+    expect(JSON.stringify(body)).not.toContain("new-envelope");
+    expect(JSON.stringify(body)).not.toContain("salt");
   });
 
   test("stores only encrypted mail message metadata", async () => {

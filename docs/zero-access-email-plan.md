@@ -177,6 +177,7 @@ Contratos iniciais da API:
 - `POST /crypto/recovery`: cadastra pacote de recuperação.
 - `GET /keys/local/:address`: resolve chave pública local.
 - `GET /keys/wkd/:address`: endpoint interno de montagem WKD.
+- `GET /events/key/:address`: retorna cadeia pública de eventos de chave para auditoria.
 - `GET /mail/folders`: lista folders.
 - `GET /mail/messages?folder=&cursor=`: lista metadados paginados.
 - `GET /mail/messages/:id/blob`: retorna ciphertext da mensagem.

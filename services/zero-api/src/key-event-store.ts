@@ -18,6 +18,7 @@ export type KeyEvent = {
 
 export type KeyEventStore = {
   append(event: KeyEventInput): Promise<KeyEvent>;
+  list(address: string): Promise<KeyEvent[]>;
 };
 
 type KeyEventInput = Omit<KeyEvent, "created" | "previousEventHash" | "eventHash">;
@@ -63,6 +64,10 @@ export function createMemoryKeyEventStore(events: KeyEvent[] = []): KeyEventStor
       const stored = await buildStoredEvent(event, previousEventHash);
       events.push(stored);
       return stored;
+    },
+    async list(address) {
+      const normalizedAddress = address.toLowerCase();
+      return events.filter((event) => event.address === normalizedAddress);
     }
   };
 }
@@ -78,11 +83,25 @@ export function createFileKeyEventStore(root: string): KeyEventStore {
       await mkdir(directory, { recursive: true });
       await appendFile(eventsPath, `${JSON.stringify(stored)}\n`, { encoding: "utf8" });
       return stored;
+    },
+    async list(address) {
+      return readEventsForAddress(eventsPath, address);
     }
   };
 }
 
+async function readEventsForAddress(path: string, address: string) {
+  const events = await readAllEvents(path);
+  const normalizedAddress = address.toLowerCase();
+  return events.filter((event) => event.address === normalizedAddress);
+}
+
 async function readLastEventHashForAddress(path: string, address: string) {
+  const events = await readEventsForAddress(path, address);
+  return events.at(-1)?.eventHash;
+}
+
+async function readAllEvents(path: string) {
   let data: string;
 
   try {
@@ -95,8 +114,7 @@ async function readLastEventHashForAddress(path: string, address: string) {
     throw error;
   }
 
-  const normalizedAddress = address.toLowerCase();
-  let previousEventHash: string | undefined;
+  const events: KeyEvent[] = [];
 
   for (const line of data.trimEnd().split("\n")) {
     if (!line) {
@@ -105,12 +123,24 @@ async function readLastEventHashForAddress(path: string, address: string) {
 
     const parsed = JSON.parse(line) as Partial<KeyEvent>;
 
-    if (parsed.address === normalizedAddress && typeof parsed.eventHash === "string") {
-      previousEventHash = parsed.eventHash;
+    if (isKeyEvent(parsed)) {
+      events.push(parsed);
     }
   }
 
-  return previousEventHash;
+  return events;
+}
+
+function isKeyEvent(value: Partial<KeyEvent>): value is KeyEvent {
+  return (
+    typeof value.address === "string" &&
+    typeof value.eventType === "string" &&
+    typeof value.primaryKeyId === "string" &&
+    typeof value.keyVersion === "number" &&
+    typeof value.rotationMode === "string" &&
+    typeof value.eventHash === "string" &&
+    typeof value.created === "string"
+  );
 }
 
 export function keyEventForUserKey(key: UserKey, eventType: KeyEventType): KeyEventInput {

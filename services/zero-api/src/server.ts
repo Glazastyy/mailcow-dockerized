@@ -139,6 +139,16 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
       });
     }
 
+    if (request.method === "GET" && url.pathname.startsWith("/events/key/")) {
+      const address = decodeURIComponent(url.pathname.slice("/events/key/".length)).toLowerCase();
+      const events = await keyEventStore.list(address);
+
+      return jsonResponse({
+        address,
+        events
+      });
+    }
+
     if (request.method === "POST" && url.pathname === "/blob") {
       if (
         request.headers.get("content-type") !== "application/octet-stream" ||
