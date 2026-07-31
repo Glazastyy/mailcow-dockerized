@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readConfig } from "./config";
 import { createHandler } from "./server";
+import { createMemoryKeyStore } from "./key-store";
 
 describe("zero-api config", () => {
   test("requires zero-access mode", () => {
@@ -102,5 +103,66 @@ describe("zero-api handler", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("content-type")).toBe("application/octet-stream");
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([7, 8, 9]));
+  });
+
+  test("rejects clear private keys when registering user keys", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config, { keyStore: createMemoryKeyStore() });
+    const response = await handler(
+      new Request("http://zero-api/crypto/keys", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "alice@example.test",
+          primaryKeyId: "alice-key",
+          publicKeyArmored: "public",
+          privateKey: "clear-secret",
+          encryptedPrivateKey: "encrypted",
+          privateKeyKdf: "argon2id",
+          privateKeyKdfParams: { memory: 65536 }
+        })
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "clear_private_key_rejected" });
+  });
+
+  test("registers encrypted user keys and exposes only public key material", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config, { keyStore: createMemoryKeyStore() });
+    const createResponse = await handler(
+      new Request("http://zero-api/crypto/keys", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "Alice@Example.Test",
+          primaryKeyId: "alice-key",
+          publicKeyArmored: "-----BEGIN PGP PUBLIC KEY BLOCK-----",
+          encryptedPrivateKey: "ciphertext-private-key",
+          privateKeyKdf: "argon2id",
+          privateKeyKdfParams: { memory: 65536, iterations: 3 },
+          keyVersion: 1
+        })
+      })
+    );
+    const publicResponse = await handler(new Request("http://zero-api/keys/local/alice@example.test"));
+    const publicBody = await publicResponse.json();
+
+    expect(createResponse.status).toBe(201);
+    expect(await createResponse.json()).toEqual({
+      address: "alice@example.test",
+      primaryKeyId: "alice-key",
+      keyVersion: 1,
+      status: "active"
+    });
+    expect(publicResponse.status).toBe(200);
+    expect(publicBody).toEqual({
+      address: "alice@example.test",
+      primaryKeyId: "alice-key",
+      publicKeyArmored: "-----BEGIN PGP PUBLIC KEY BLOCK-----",
+      keyVersion: 1
+    });
+    expect(JSON.stringify(publicBody)).not.toContain("ciphertext-private-key");
   });
 });
