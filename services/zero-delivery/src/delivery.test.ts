@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readConfig } from "./config";
-import { validateDelivery, validateResolvedDelivery } from "./delivery";
+import { createHttpCiphertextBlobSink, validateDelivery, validateResolvedDelivery } from "./delivery";
 import { createHandler } from "./server";
 
 describe("zero-delivery config", () => {
@@ -169,6 +169,110 @@ describe("zero-delivery handler", () => {
         encryptionState: "local_e2ee"
       }
     ]);
+  });
+
+  test("uploads inline ciphertext before storing delivery metadata", async () => {
+    const stored: unknown[] = [];
+    const uploaded: Uint8Array[] = [];
+    const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientKeyResolver: {
+        async resolve(address) {
+          return { address, primaryKeyId: "bob-key" };
+        }
+      },
+      ciphertextBlobSink: {
+        async store(ciphertext) {
+          uploaded.push(ciphertext);
+          return { id: "uploaded-blob-id" };
+        }
+      },
+      messageSink: {
+        async store(message) {
+          stored.push(message);
+        }
+      }
+    });
+    const response = await handler(
+      new Request("http://zero-delivery/deliver", {
+        method: "POST",
+        body: JSON.stringify({
+          recipient: "bob@example.test",
+          ciphertext: Buffer.from([1, 2, 3, 4]).toString("base64"),
+          encryptionState: "local_e2ee"
+        })
+      })
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      recipient: "bob@example.test",
+      ciphertextBlobId: "uploaded-blob-id"
+    });
+    expect(uploaded).toEqual([new Uint8Array([1, 2, 3, 4])]);
+    expect(stored).toEqual([
+      {
+        recipient: "bob@example.test",
+        ciphertextBlobId: "uploaded-blob-id",
+        recipientKeyId: "bob-key",
+        encryptionState: "local_e2ee"
+      }
+    ]);
+  });
+
+  test("does not upload inline ciphertext when cleartext fields are present", async () => {
+    const uploaded: Uint8Array[] = [];
+    const stored: unknown[] = [];
+    const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientKeyResolver: {
+        async resolve(address) {
+          return { address, primaryKeyId: "bob-key" };
+        }
+      },
+      ciphertextBlobSink: {
+        async store(ciphertext) {
+          uploaded.push(ciphertext);
+          return { id: "uploaded-blob-id" };
+        }
+      },
+      messageSink: {
+        async store(message) {
+          stored.push(message);
+        }
+      }
+    });
+    const response = await handler(
+      new Request("http://zero-delivery/deliver", {
+        method: "POST",
+        body: JSON.stringify({
+          recipient: "bob@example.test",
+          ciphertext: Buffer.from([1, 2, 3, 4]).toString("base64"),
+          encryptionState: "local_e2ee",
+          body: "hello"
+        })
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ ok: false, error: "cleartext_rejected" });
+    expect(uploaded).toEqual([]);
+    expect(stored).toEqual([]);
+  });
+
+  test("uploads ciphertext to zero-api with ciphertext-only headers", async () => {
+    const requests: Request[] = [];
+    const sink = createHttpCiphertextBlobSink("http://zero-api", async (request) => {
+      requests.push(request);
+      return new Response(JSON.stringify({ id: "blob-id" }), { status: 201 });
+    });
+
+    await expect(sink.store(new Uint8Array([7, 8, 9]))).resolves.toEqual({ id: "blob-id" });
+    expect(requests).toHaveLength(1);
+    expect(requests[0].url).toBe("http://zero-api/blob");
+    expect(requests[0].method).toBe("POST");
+    expect(requests[0].headers.get("content-type")).toBe("application/octet-stream");
+    expect(requests[0].headers.get("x-zero-blob-kind")).toBe("ciphertext");
+    expect(new Uint8Array(await requests[0].arrayBuffer())).toEqual(new Uint8Array([7, 8, 9]));
   });
 
   test("does not store delivery with cleartext fields", async () => {

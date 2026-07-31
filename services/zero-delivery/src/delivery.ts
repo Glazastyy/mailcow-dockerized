@@ -1,6 +1,9 @@
+import { Buffer } from "node:buffer";
+
 export type DeliveryRequest = {
   recipient: string;
-  ciphertextBlobId: string;
+  ciphertextBlobId?: string;
+  ciphertext?: string;
   recipientKeyId?: string;
   encryptionState: string;
 };
@@ -25,6 +28,12 @@ export type MessageSink = {
   store(message: AcceptedDelivery): Promise<void>;
 };
 
+export type CiphertextBlobSink = {
+  store(ciphertext: Uint8Array): Promise<{ id: string }>;
+};
+
+type FetchRequest = (request: Request) => Promise<Response>;
+
 export type DeliveryResult =
   | { ok: true; recipient: string; ciphertextBlobId: string; accepted: AcceptedDelivery }
   | { ok: false; error: "recipient_key_required" | "ciphertext_required" | "unsupported_encryption_state" | "cleartext_rejected" };
@@ -42,6 +51,10 @@ export function validateDelivery(request: DeliveryRequest): DeliveryResult {
 
   if (!request.recipientKeyId) {
     return { ok: false, error: "recipient_key_required" };
+  }
+
+  if (!request.ciphertextBlobId && !request.ciphertext) {
+    return { ok: false, error: "ciphertext_required" };
   }
 
   if (!request.ciphertextBlobId) {
@@ -74,6 +87,31 @@ export async function validateResolvedDelivery(request: DeliveryRequest, resolve
   });
 }
 
+export function hasCleartextFields(request: DeliveryRequest): boolean {
+  const payload = request as unknown as Record<string, unknown>;
+  return cleartextFields.some((field) => field in payload && payload[field] !== undefined);
+}
+
+export function decodeCiphertext(ciphertext: string): Uint8Array | undefined {
+  try {
+    const decoded = Buffer.from(ciphertext, "base64");
+
+    if (decoded.byteLength === 0) {
+      return undefined;
+    }
+
+    return new Uint8Array(decoded);
+  } catch {
+    return undefined;
+  }
+}
+
+function arrayBufferFromBytes(data: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(buffer).set(data);
+  return buffer;
+}
+
 export function createHttpRecipientKeyResolver(baseUrl: string): RecipientKeyResolver {
   return {
     async resolve(address) {
@@ -104,6 +142,35 @@ export function createHttpMessageSink(baseUrl: string): MessageSink {
       if (!response.ok) {
         throw new Error(`Message store failed with status ${response.status}`);
       }
+    }
+  };
+}
+
+export function createHttpCiphertextBlobSink(baseUrl: string, fetchFn: FetchRequest = fetch): CiphertextBlobSink {
+  return {
+    async store(ciphertext) {
+      const response = await fetchFn(
+        new Request(`${baseUrl}/blob`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/octet-stream",
+            "x-zero-blob-kind": "ciphertext"
+          },
+          body: arrayBufferFromBytes(ciphertext)
+        })
+      );
+
+      if (!response.ok) {
+        throw new Error(`Ciphertext blob store failed with status ${response.status}`);
+      }
+
+      const body = (await response.json()) as { id?: unknown };
+
+      if (typeof body.id !== "string" || body.id.length === 0) {
+        throw new Error("Ciphertext blob store response did not include an id");
+      }
+
+      return { id: body.id };
     }
   };
 }

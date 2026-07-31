@@ -666,6 +666,7 @@ Tarefas:
 - Criar serviço `zero-delivery`.
 - Receber LMTP ou SMTP interno do Postfix.
 - Resolver destinatários locais.
+- Persistir ciphertext bruto recebido pelo transporte como blob antes de gravar metadados. Iniciado no handler HTTP interno com upload para `zero-api /blob`.
 - Integrar Rspamd antes da persistência.
 - Criptografar inbound externo para chave pública do destinatário.
 - Persistir metadados mínimos.

@@ -1,8 +1,12 @@
 import { readConfig, type ZeroDeliveryConfig } from "./config";
 import {
   createHttpMessageSink,
+  createHttpCiphertextBlobSink,
   createHttpRecipientKeyResolver,
+  decodeCiphertext,
+  hasCleartextFields,
   validateResolvedDelivery,
+  type CiphertextBlobSink,
   type DeliveryRequest,
   type MessageSink,
   type RecipientKeyResolver
@@ -11,6 +15,7 @@ import {
 type HandlerDeps = {
   recipientKeyResolver?: RecipientKeyResolver;
   messageSink?: MessageSink;
+  ciphertextBlobSink?: CiphertextBlobSink;
 };
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
@@ -26,6 +31,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 export function createHandler(config: ZeroDeliveryConfig, deps: HandlerDeps = {}) {
   const recipientKeyResolver = deps.recipientKeyResolver ?? createHttpRecipientKeyResolver(config.zeroApiBaseUrl);
   const messageSink = deps.messageSink ?? createHttpMessageSink(config.zeroApiBaseUrl);
+  const ciphertextBlobSink = deps.ciphertextBlobSink ?? createHttpCiphertextBlobSink(config.zeroApiBaseUrl);
 
   return async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -39,7 +45,27 @@ export function createHandler(config: ZeroDeliveryConfig, deps: HandlerDeps = {}
     }
 
     if (request.method === "POST" && url.pathname === "/deliver") {
-      const body = (await request.json()) as DeliveryRequest;
+      let body = (await request.json()) as DeliveryRequest;
+
+      if (hasCleartextFields(body)) {
+        return jsonResponse({ ok: false, error: "cleartext_rejected" }, 422);
+      }
+
+      if (!body.ciphertextBlobId && body.ciphertext) {
+        const ciphertext = decodeCiphertext(body.ciphertext);
+
+        if (!ciphertext) {
+          return jsonResponse({ ok: false, error: "ciphertext_required" }, 422);
+        }
+
+        const blob = await ciphertextBlobSink.store(ciphertext);
+        body = {
+          ...body,
+          ciphertext: undefined,
+          ciphertextBlobId: blob.id
+        };
+      }
+
       const result = await validateResolvedDelivery(body, recipientKeyResolver);
 
       if (!result.ok) {
