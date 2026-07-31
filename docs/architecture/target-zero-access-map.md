@@ -79,7 +79,7 @@ Data: 2026-07-31
 3. Fazer `nginx-mailcow` servir rotas novas para `zero-web`, `zero-api` e WKD.
 4. Adicionar `zero-api` com healthcheck. Concluído como serviço `zero-api-mailcow`.
 5. Adicionar schema `zero_*` e registro seguro de chaves. Schema concluído; registro em memória iniciado no `zero-api`.
-6. Adicionar `zero-delivery`. Iniciado como serviço interno com validação de ciphertext e chave do destinatário.
+6. Adicionar `zero-delivery`. Iniciado como serviço interno com validação de ciphertext e resolução de chave do destinatário via `zero-api`.
 7. Alterar Postfix para rotear mailbox local para `zero-delivery`.
 8. Remover portas públicas IMAP/POP3/Sieve do caminho padrão.
 9. Remover SOGo da dependência do nginx/ofelia.

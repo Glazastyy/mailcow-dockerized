@@ -71,6 +71,7 @@ Resultado: o servidor processa MIME em claro para e-mails enviados por SMTP trad
 - `zero-blob-vol-1` passa a existir como volume dedicado para ciphertext do `zero-api`.
 - `zero-delivery-mailcow` passa a existir como serviço Bun interno com healthcheck e validação inicial de entregas criptografadas.
 - `zero-api` passa a registrar chaves de usuário apenas com `encryptedPrivateKey` e expor consulta pública local sem material privado.
+- `zero-delivery` passa a resolver chave ativa do destinatário via `zero-api` antes de aceitar entrega.
 - A suíte Bun cobre defaults zero-access, validade do Compose, bind local de protocolos legados e comportamento inicial do `zero-api`.
 - `nginx-mailcow`, `ofelia-mailcow` e `watchdog-mailcow` deixam de ter dependências duras de SOGo/Dovecot no caminho zero-access.
 - Essa flag ainda não muda comportamento sozinha; ela cria o contrato para as próximas alterações recusarem fluxos não zero-access.

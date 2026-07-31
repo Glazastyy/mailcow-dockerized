@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readConfig } from "./config";
-import { validateDelivery } from "./delivery";
+import { validateDelivery, validateResolvedDelivery } from "./delivery";
 import { createHandler } from "./server";
 
 describe("zero-delivery config", () => {
@@ -45,6 +45,27 @@ describe("zero-delivery validation", () => {
       ciphertextBlobId: "blob-id"
     });
   });
+
+  test("resolves recipient key before accepting delivery", async () => {
+    await expect(
+      validateResolvedDelivery(
+        {
+          recipient: "bob@example.test",
+          ciphertextBlobId: "blob-id",
+          encryptionState: "local_e2ee"
+        },
+        {
+          async resolve(address) {
+            return { address, primaryKeyId: "bob-key" };
+          }
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      recipient: "bob@example.test",
+      ciphertextBlobId: "blob-id"
+    });
+  });
 });
 
 describe("zero-delivery handler", () => {
@@ -60,5 +81,28 @@ describe("zero-delivery handler", () => {
       service: "zero-delivery",
       zeroAccessRequired: true
     });
+  });
+
+  test("rejects delivery when zero-api has no recipient key", async () => {
+    const handler = createHandler(readConfig({ ZERO_ACCESS_REQUIRED: "y" }), {
+      recipientKeyResolver: {
+        async resolve() {
+          return undefined;
+        }
+      }
+    });
+    const response = await handler(
+      new Request("http://zero-delivery/deliver", {
+        method: "POST",
+        body: JSON.stringify({
+          recipient: "bob@example.test",
+          ciphertextBlobId: "blob-id",
+          encryptionState: "local_e2ee"
+        })
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ ok: false, error: "recipient_key_required" });
   });
 });

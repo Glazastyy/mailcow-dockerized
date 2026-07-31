@@ -1,5 +1,9 @@
 import { readConfig, type ZeroDeliveryConfig } from "./config";
-import { validateDelivery, type DeliveryRequest } from "./delivery";
+import { createHttpRecipientKeyResolver, validateResolvedDelivery, type DeliveryRequest, type RecipientKeyResolver } from "./delivery";
+
+type HandlerDeps = {
+  recipientKeyResolver?: RecipientKeyResolver;
+};
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -11,7 +15,9 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-export function createHandler(config: ZeroDeliveryConfig) {
+export function createHandler(config: ZeroDeliveryConfig, deps: HandlerDeps = {}) {
+  const recipientKeyResolver = deps.recipientKeyResolver ?? createHttpRecipientKeyResolver(config.zeroApiBaseUrl);
+
   return async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
@@ -25,7 +31,7 @@ export function createHandler(config: ZeroDeliveryConfig) {
 
     if (request.method === "POST" && url.pathname === "/deliver") {
       const body = (await request.json()) as DeliveryRequest;
-      const result = validateDelivery(body);
+      const result = await validateResolvedDelivery(body, recipientKeyResolver);
 
       return jsonResponse(result, result.ok ? 202 : 422);
     }

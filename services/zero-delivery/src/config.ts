@@ -2,6 +2,7 @@ export type ZeroDeliveryConfig = {
   host: string;
   port: number;
   zeroAccessRequired: true;
+  zeroApiBaseUrl: string;
 };
 
 export function readConfig(env: Record<string, string | undefined>): ZeroDeliveryConfig {
@@ -18,6 +19,7 @@ export function readConfig(env: Record<string, string | undefined>): ZeroDeliver
   return {
     host: env.ZERO_DELIVERY_HOST ?? "0.0.0.0",
     port,
-    zeroAccessRequired: true
+    zeroAccessRequired: true,
+    zeroApiBaseUrl: env.ZERO_API_BASE_URL ?? "http://zero-api:8080"
   };
 }

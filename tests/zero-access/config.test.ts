@@ -83,6 +83,7 @@ describe("zero-access compose topology", () => {
 
     expect(service).toBeDefined();
     expect(service.environment.ZERO_ACCESS_REQUIRED).toBe("y");
+    expect(service.environment.ZERO_API_BASE_URL).toBe("http://zero-api:8080");
     expect(service.expose).toContain("2525");
     expect(service.ports).toBeUndefined();
   });

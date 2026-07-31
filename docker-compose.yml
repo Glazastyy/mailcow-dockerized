@@ -296,6 +296,7 @@ services:
         - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
         - ZERO_DELIVERY_HOST=0.0.0.0
         - ZERO_DELIVERY_PORT=2525
+        - ZERO_API_BASE_URL=http://zero-api:8080
         - TZ=${TZ}
       expose:
         - "2525"

@@ -5,6 +5,15 @@ export type DeliveryRequest = {
   encryptionState: string;
 };
 
+export type RecipientKey = {
+  address: string;
+  primaryKeyId: string;
+};
+
+export type RecipientKeyResolver = {
+  resolve(address: string): Promise<RecipientKey | undefined>;
+};
+
 export type DeliveryResult =
   | { ok: true; recipient: string; ciphertextBlobId: string }
   | { ok: false; error: "recipient_key_required" | "ciphertext_required" | "unsupported_encryption_state" };
@@ -26,5 +35,32 @@ export function validateDelivery(request: DeliveryRequest): DeliveryResult {
     ok: true,
     recipient: request.recipient,
     ciphertextBlobId: request.ciphertextBlobId
+  };
+}
+
+export async function validateResolvedDelivery(request: DeliveryRequest, resolver: RecipientKeyResolver): Promise<DeliveryResult> {
+  const key = await resolver.resolve(request.recipient);
+
+  return validateDelivery({
+    ...request,
+    recipientKeyId: key?.primaryKeyId
+  });
+}
+
+export function createHttpRecipientKeyResolver(baseUrl: string): RecipientKeyResolver {
+  return {
+    async resolve(address) {
+      const response = await fetch(`${baseUrl}/keys/local/${encodeURIComponent(address)}`);
+
+      if (response.status === 404) {
+        return undefined;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Key lookup failed with status ${response.status}`);
+      }
+
+      return (await response.json()) as RecipientKey;
+    }
   };
 }
