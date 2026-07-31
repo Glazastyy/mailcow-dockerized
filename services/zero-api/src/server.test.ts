@@ -724,6 +724,76 @@ describe("zero-api handler", () => {
     expect(JSON.stringify(created)).not.toContain("report.pdf");
   });
 
+  test("returns encrypted message and attachment blobs through mailbox scoped routes", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const messageStore = createMemoryMessageStore();
+    const attachmentStore = createMemoryAttachmentStore();
+    const messageBlobId = "11111111-1111-4111-8111-111111111111";
+    const attachmentBlobId = "22222222-2222-4222-8222-222222222222";
+    const blobs = new Map<string, Uint8Array>([
+      [messageBlobId, new Uint8Array([1, 3, 3, 7])],
+      [attachmentBlobId, new Uint8Array([8, 5, 5])]
+    ]);
+    const message = await messageStore.save({
+      recipient: "alice@example.test",
+      folder: "inbox",
+      ciphertextBlobId: messageBlobId,
+      recipientKeyId: "alice-key",
+      encryptionState: "local_e2ee"
+    });
+    const attachment = await attachmentStore.save({
+      messageId: message.id,
+      ciphertextBlobId: attachmentBlobId,
+      encryptedName: "sealed-name",
+      mimeType: "application/octet-stream",
+      size: 3,
+      sha256Ciphertext: "a".repeat(64)
+    });
+    const handler = createHandler(config, { blobs, messageStore, attachmentStore });
+
+    const messageBlobResponse = await handler(new Request(`http://zero-api/mail/messages/${message.id}/blob`));
+    const attachmentBlobResponse = await handler(new Request(`http://zero-api/mail/attachments/${attachment.id}/blob`));
+
+    expect(messageBlobResponse.status).toBe(200);
+    expect(messageBlobResponse.headers.get("cache-control")).toBe("no-store");
+    expect(messageBlobResponse.headers.get("content-type")).toBe("application/octet-stream");
+    expect(new Uint8Array(await messageBlobResponse.arrayBuffer())).toEqual(new Uint8Array([1, 3, 3, 7]));
+    expect(attachmentBlobResponse.status).toBe(200);
+    expect(attachmentBlobResponse.headers.get("cache-control")).toBe("no-store");
+    expect(attachmentBlobResponse.headers.get("content-type")).toBe("application/octet-stream");
+    expect(new Uint8Array(await attachmentBlobResponse.arrayBuffer())).toEqual(new Uint8Array([8, 5, 5]));
+  });
+
+  test("returns not found when mailbox scoped ciphertext blobs are missing", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const messageStore = createMemoryMessageStore();
+    const attachmentStore = createMemoryAttachmentStore();
+    const message = await messageStore.save({
+      recipient: "alice@example.test",
+      folder: "inbox",
+      ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
+      recipientKeyId: "alice-key",
+      encryptionState: "local_e2ee"
+    });
+    const attachment = await attachmentStore.save({
+      messageId: message.id,
+      ciphertextBlobId: "22222222-2222-4222-8222-222222222222",
+      encryptedName: "sealed-name",
+      mimeType: "application/octet-stream",
+      size: 3,
+      sha256Ciphertext: "a".repeat(64)
+    });
+    const handler = createHandler(config, { blobs: new Map(), messageStore, attachmentStore });
+
+    const messageBlobResponse = await handler(new Request(`http://zero-api/mail/messages/${message.id}/blob`));
+    const attachmentBlobResponse = await handler(new Request(`http://zero-api/mail/attachments/${attachment.id}/blob`));
+
+    expect(messageBlobResponse.status).toBe(404);
+    expect(await messageBlobResponse.json()).toEqual({ error: "not_found" });
+    expect(attachmentBlobResponse.status).toBe(404);
+    expect(await attachmentBlobResponse.json()).toEqual({ error: "not_found" });
+  });
+
   test("rejects clear attachment names", async () => {
     const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
     const handler = createHandler(config, { attachmentStore: createMemoryAttachmentStore() });

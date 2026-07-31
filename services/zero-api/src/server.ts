@@ -25,6 +25,15 @@ function jsonResponse(body: JsonValue, status = 200): Response {
   });
 }
 
+function ciphertextResponse(data: Uint8Array): Response {
+  return new Response(arrayBufferFromBytes(data), {
+    headers: {
+      "content-type": "application/octet-stream",
+      "cache-control": "no-store"
+    }
+  });
+}
+
 export function createHandler(config: ZeroApiConfig, deps: HandlerDeps = {}) {
   return createHandlerWithDeps(config, deps);
 }
@@ -197,12 +206,7 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
         return jsonResponse({ error: "not_found" }, 404);
       }
 
-      return new Response(arrayBufferFromBytes(data), {
-        headers: {
-          "content-type": "application/octet-stream",
-          "cache-control": "no-store"
-        }
-      });
+      return ciphertextResponse(data);
     }
 
     if (request.method === "POST" && url.pathname === "/mail/messages") {
@@ -266,6 +270,40 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
       return jsonResponse({
         attachments: await attachmentStore.list(messageId)
       });
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/mail/messages/") && url.pathname.endsWith("/blob")) {
+      const messageId = url.pathname.slice("/mail/messages/".length, -"/blob".length);
+      const message = await messageStore.get(messageId);
+
+      if (!message) {
+        return jsonResponse({ error: "not_found" }, 404);
+      }
+
+      const data = await blobStore.read(message.ciphertextBlobId);
+
+      if (!data) {
+        return jsonResponse({ error: "not_found" }, 404);
+      }
+
+      return ciphertextResponse(data);
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/mail/attachments/") && url.pathname.endsWith("/blob")) {
+      const id = url.pathname.slice("/mail/attachments/".length, -"/blob".length);
+      const attachment = await attachmentStore.get(id);
+
+      if (!attachment) {
+        return jsonResponse({ error: "not_found" }, 404);
+      }
+
+      const data = await blobStore.read(attachment.ciphertextBlobId);
+
+      if (!data) {
+        return jsonResponse({ error: "not_found" }, 404);
+      }
+
+      return ciphertextResponse(data);
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/mail/attachments/")) {
