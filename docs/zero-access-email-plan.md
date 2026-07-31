@@ -470,6 +470,8 @@ Fontes: `local`, `wkd`, `autocrypt`, `manual`, `keyserver`.
 
 Eventos mínimos: `created`, `rotated`, `revoked`, `recovered`, `verified`, `password_reencrypted` e `password_reset`.
 
+Estado implementado no `zero-api`: criação de chave, troca de senha com recriptografia e reset destrutivo já registram eventos sem incluir chave privada criptografada, senha, KDF params ou envelopes privados.
+
 Essa tabela prepara key transparency local.
 
 ### `zero_recovery`

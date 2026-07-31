@@ -1,6 +1,7 @@
 import { readConfig, type ZeroApiConfig } from "./config";
 import { createFileBlobStore, createMemoryBlobStore, type BlobStore } from "./blob-store";
 import { createMemoryKeyStore, validatePasswordReencryptPayload, validateUserKeyPayload, type KeyStore } from "./key-store";
+import { createFileKeyEventStore, keyEventForUserKey, type KeyEventStore } from "./key-event-store";
 import { createFileMessageStore, validateMessagePayload, type MessageStore } from "./message-store";
 
 type JsonValue = Record<string, unknown>;
@@ -8,6 +9,7 @@ type HandlerDeps = {
   blobStore?: BlobStore;
   blobs?: Map<string, Uint8Array>;
   keyStore?: KeyStore;
+  keyEventStore?: KeyEventStore;
   messageStore?: MessageStore;
 };
 
@@ -28,6 +30,7 @@ export function createHandler(config: ZeroApiConfig, deps: HandlerDeps = {}) {
 export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps = {}) {
   const blobStore = deps.blobStore ?? (deps.blobs ? createMemoryBlobStore(deps.blobs) : createFileBlobStore(config.blobDir));
   const keyStore = deps.keyStore ?? createMemoryKeyStore();
+  const keyEventStore = deps.keyEventStore ?? createFileKeyEventStore(config.blobDir);
   const messageStore = deps.messageStore ?? createFileMessageStore(config.blobDir);
 
   return async function handler(request: Request): Promise<Response> {
@@ -55,6 +58,7 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
       }
 
       const key = await keyStore.saveUserKey(validation.key);
+      await keyEventStore.append(keyEventForUserKey(key, "created"));
 
       return jsonResponse(
         {
@@ -84,6 +88,8 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
         return jsonResponse({ error: "active_key_not_found" }, 404);
       }
 
+      await keyEventStore.append(keyEventForUserKey(key, "password_reencrypted"));
+
       return jsonResponse({
         address: key.address,
         primaryKeyId: key.primaryKeyId,
@@ -105,6 +111,7 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
       }
 
       const key = await keyStore.resetUserKey(validation.key);
+      await keyEventStore.append(keyEventForUserKey(key, "password_reset"));
 
       return jsonResponse({
         address: key.address,

@@ -142,7 +142,15 @@ describe("zero-api handler", () => {
 
   test("registers encrypted user keys and exposes only public key material", async () => {
     const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
-    const handler = createHandler(config, { keyStore: createMemoryKeyStore() });
+    const keyEvents: unknown[] = [];
+    const handler = createHandler(config, {
+      keyStore: createMemoryKeyStore(),
+      keyEventStore: {
+        async append(event) {
+          keyEvents.push(event);
+        }
+      }
+    });
     const createResponse = await handler(
       new Request("http://zero-api/crypto/keys", {
         method: "POST",
@@ -176,12 +184,30 @@ describe("zero-api handler", () => {
       keyVersion: 1
     });
     expect(JSON.stringify(publicBody)).not.toContain("ciphertext-private-key");
+    expect(keyEvents).toEqual([
+      expect.objectContaining({
+        address: "alice@example.test",
+        eventType: "created",
+        primaryKeyId: "alice-key",
+        keyVersion: 1,
+        rotationMode: "initial"
+      })
+    ]);
+    expect(JSON.stringify(keyEvents)).not.toContain("ciphertext-private-key");
   });
 
   test("re-encrypts private key envelope when the current password is available client-side", async () => {
     const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
     const keyStore = createMemoryKeyStore();
-    const handler = createHandler(config, { keyStore });
+    const keyEvents: unknown[] = [];
+    const handler = createHandler(config, {
+      keyStore,
+      keyEventStore: {
+        async append(event) {
+          keyEvents.push(event);
+        }
+      }
+    });
     await keyStore.saveUserKey({
       address: "alice@example.test",
       primaryKeyId: "alice-key",
@@ -222,6 +248,18 @@ describe("zero-api handler", () => {
       publicKeyArmored: "public",
       keyVersion: 2
     });
+    expect(keyEvents).toEqual([
+      expect.objectContaining({
+        address: "alice@example.test",
+        eventType: "password_reencrypted",
+        primaryKeyId: "alice-key",
+        keyVersion: 2,
+        rotationMode: "password_reencrypt",
+        previousKeyId: expect.any(String)
+      })
+    ]);
+    expect(JSON.stringify(keyEvents)).not.toContain("old-envelope");
+    expect(JSON.stringify(keyEvents)).not.toContain("new-envelope");
   });
 
   test("rejects raw passwords during private key envelope re-encryption", async () => {
@@ -250,7 +288,15 @@ describe("zero-api handler", () => {
   test("resets cryptographic identity when current password is unavailable", async () => {
     const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
     const keyStore = createMemoryKeyStore();
-    const handler = createHandler(config, { keyStore });
+    const keyEvents: unknown[] = [];
+    const handler = createHandler(config, {
+      keyStore,
+      keyEventStore: {
+        async append(event) {
+          keyEvents.push(event);
+        }
+      }
+    });
     await keyStore.saveUserKey({
       address: "alice@example.test",
       primaryKeyId: "old-key",
@@ -293,6 +339,18 @@ describe("zero-api handler", () => {
       publicKeyArmored: "new-public",
       keyVersion: 2
     });
+    expect(keyEvents).toEqual([
+      expect.objectContaining({
+        address: "alice@example.test",
+        eventType: "password_reset",
+        primaryKeyId: "new-key",
+        keyVersion: 2,
+        rotationMode: "password_reset",
+        previousKeyId: expect.any(String)
+      })
+    ]);
+    expect(JSON.stringify(keyEvents)).not.toContain("old-envelope");
+    expect(JSON.stringify(keyEvents)).not.toContain("new-envelope");
   });
 
   test("stores only encrypted mail message metadata", async () => {
