@@ -97,6 +97,7 @@ services:
         - REDIS_SLAVEOF_PORT=${REDIS_SLAVEOF_PORT:-}
         - REDISPASS=${REDISPASS}
         - SPAMHAUS_DQS_KEY=${SPAMHAUS_DQS_KEY:-}
+        - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
       volumes:
         - ./data/hooks/rspamd:/hooks:Z
         - ./data/conf/rspamd/custom/:/etc/rspamd/custom:z
@@ -160,11 +161,11 @@ services:
         - DBPASS=${DBPASS}
         - MAILCOW_HOSTNAME=${MAILCOW_HOSTNAME}
         - MAILCOW_PASS_SCHEME=${MAILCOW_PASS_SCHEME:-BLF-CRYPT}
-        - IMAP_PORT=${IMAP_PORT:-143}
-        - IMAPS_PORT=${IMAPS_PORT:-993}
-        - POP_PORT=${POP_PORT:-110}
-        - POPS_PORT=${POPS_PORT:-995}
-        - SIEVE_PORT=${SIEVE_PORT:-4190}
+        - IMAP_PORT=${IMAP_PORT:-127.0.0.1:143}
+        - IMAPS_PORT=${IMAPS_PORT:-127.0.0.1:993}
+        - POP_PORT=${POP_PORT:-127.0.0.1:110}
+        - POPS_PORT=${POPS_PORT:-127.0.0.1:995}
+        - SIEVE_PORT=${SIEVE_PORT:-127.0.0.1:4190}
         - IPV4_NETWORK=${IPV4_NETWORK:-172.22.1}
         - IPV6_NETWORK=${IPV6_NETWORK:-fd4d:6169:6c63:6f77::/64}
         - SUBMISSION_PORT=${SUBMISSION_PORT:-587}
@@ -177,11 +178,12 @@ services:
         - SKIP_FTS=${SKIP_FTS:-y}
         - SKIP_CLAMD=${SKIP_CLAMD:-n}
         - SKIP_OLEFY=${SKIP_OLEFY:-n}
-        - SKIP_SOGO=${SKIP_SOGO:-n}
+        - SKIP_SOGO=${SKIP_SOGO:-y}
         - ALLOW_ADMIN_EMAIL_LOGIN=${ALLOW_ADMIN_EMAIL_LOGIN:-n}
         - MASTER=${MASTER:-y}
         - DEV_MODE=${DEV_MODE:-n}
         - DEMO_MODE=${DEMO_MODE:-n}
+        - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
         - WEBAUTHN_ONLY_TRUSTED_VENDORS=${WEBAUTHN_ONLY_TRUSTED_VENDORS:-n}
         - CLUSTERMODE=${CLUSTERMODE:-}
         - ADDITIONAL_SERVER_NAMES=${ADDITIONAL_SERVER_NAMES:-}
@@ -214,11 +216,12 @@ services:
         - IPV4_NETWORK=${IPV4_NETWORK:-172.22.1}
         - SOGO_EXPIRE_SESSION=${SOGO_EXPIRE_SESSION:-480}
         - SOGO_URL_ENCRYPTION_KEY=${SOGO_URL_ENCRYPTION_KEY:-SOGoSuperSecret0}
-        - SKIP_SOGO=${SKIP_SOGO:-n}
+        - SKIP_SOGO=${SKIP_SOGO:-y}
         - MASTER=${MASTER:-y}
         - REDIS_SLAVEOF_IP=${REDIS_SLAVEOF_IP:-}
         - REDIS_SLAVEOF_PORT=${REDIS_SLAVEOF_PORT:-}
         - REDISPASS=${REDISPASS}
+        - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
       dns:
         - ${IPV4_NETWORK:-172.22.1}.254
       volumes:
@@ -250,6 +253,34 @@ services:
           ipv4_address: ${IPV4_NETWORK:-172.22.1}.248
           aliases:
             - sogo
+
+    zero-api-mailcow:
+      build:
+        context: ./services/zero-api
+      depends_on:
+        - mysql-mailcow
+        - redis-mailcow
+      environment:
+        - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
+        - ZERO_API_HOST=0.0.0.0
+        - ZERO_API_PORT=8080
+        - DBNAME=${DBNAME}
+        - DBUSER=${DBUSER}
+        - DBPASS=${DBPASS}
+        - REDISPASS=${REDISPASS}
+        - TZ=${TZ}
+      expose:
+        - "8080"
+      healthcheck:
+        test: ["CMD", "bun", "/app/src/healthcheck.ts"]
+        interval: 30s
+        timeout: 5s
+        retries: 3
+      restart: always
+      networks:
+        mailcow-network:
+          aliases:
+            - zero-api
 
     dovecot-mailcow:
       image: ghcr.io/mailcow/dovecot:2.3.21.1-2
@@ -299,13 +330,14 @@ services:
         - REDIS_SLAVEOF_PORT=${REDIS_SLAVEOF_PORT:-}
         - REDISPASS=${REDISPASS}
         - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-mailcow-dockerized}
+        - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
       ports:
         - "${DOVEADM_PORT:-127.0.0.1:19991}:12345"
-        - "${IMAP_PORT:-143}:143"
-        - "${IMAPS_PORT:-993}:993"
-        - "${POP_PORT:-110}:110"
-        - "${POPS_PORT:-995}:995"
-        - "${SIEVE_PORT:-4190}:4190"
+        - "${IMAP_PORT:-127.0.0.1:143}:143"
+        - "${IMAPS_PORT:-127.0.0.1:993}:993"
+        - "${POP_PORT:-127.0.0.1:110}:110"
+        - "${POPS_PORT:-127.0.0.1:995}:995"
+        - "${SIEVE_PORT:-127.0.0.1:4190}:4190"
       restart: always
       tty: true
       labels:
@@ -366,6 +398,7 @@ services:
         - REDISPASS=${REDISPASS}
         - MAILCOW_HOSTNAME=${MAILCOW_HOSTNAME}
         - SPAMHAUS_DQS_KEY=${SPAMHAUS_DQS_KEY:-}
+        - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
       cap_add:
         - NET_BIND_SERVICE
       ports:
@@ -428,7 +461,7 @@ services:
         - MAILCOW_HOSTNAME=${MAILCOW_HOSTNAME}
         - ADDITIONAL_SERVER_NAMES=${ADDITIONAL_SERVER_NAMES:-}
         - TZ=${TZ}
-        - SKIP_SOGO=${SKIP_SOGO:-n}
+        - SKIP_SOGO=${SKIP_SOGO:-y}
         - SKIP_RSPAMD=${SKIP_RSPAMD:-n}
         - ENABLE_IPV6=${ENABLE_IPV6:-true}
         - HTTP_REDIRECT=${HTTP_REDIRECT:-n}
@@ -439,6 +472,7 @@ services:
         - IPV4_NETWORK=${IPV4_NETWORK:-172.22.1}
         - NGINX_USE_PROXY_PROTOCOL=${NGINX_USE_PROXY_PROTOCOL:-n}
         - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
+        - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
       volumes:
         - ./data/web:/web:ro,z
         - ./data/conf/rspamd/dynmaps:/dynmaps:ro,z
@@ -490,6 +524,7 @@ services:
         - REDISPASS=${REDISPASS}
         - SNAT_TO_SOURCE=${SNAT_TO_SOURCE:-n}
         - SNAT6_TO_SOURCE=${SNAT6_TO_SOURCE:-n}
+        - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
         - ACME_DNS_CHALLENGE=${ACME_DNS_CHALLENGE:-n}
         - ACME_DNS_PROVIDER=${ACME_DNS_PROVIDER:-dns_xxx}
         - ACME_ACCOUNT_EMAIL=${ACME_ACCOUNT_EMAIL:-me@example.com}
@@ -569,7 +604,7 @@ services:
         - SKIP_CLAMD=${SKIP_CLAMD:-n}
         - SKIP_OLEFY=${SKIP_OLEFY:-n}
         - SKIP_LETS_ENCRYPT=${SKIP_LETS_ENCRYPT:-n}
-        - SKIP_SOGO=${SKIP_SOGO:-n}
+        - SKIP_SOGO=${SKIP_SOGO:-y}
         - HTTPS_PORT=${HTTPS_PORT:-443}
         - REDIS_SLAVEOF_IP=${REDIS_SLAVEOF_IP:-}
         - REDIS_SLAVEOF_PORT=${REDIS_SLAVEOF_PORT:-}
@@ -595,6 +630,7 @@ services:
         - MAILQ_THRESHOLD=${MAILQ_THRESHOLD:-20}
         - MAILQ_CRIT=${MAILQ_CRIT:-30}
         - DEV_MODE=${DEV_MODE:-n}
+        - ZERO_ACCESS_REQUIRED=${ZERO_ACCESS_REQUIRED:-y}
       networks:
         mailcow-network:
           aliases:

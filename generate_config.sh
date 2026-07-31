@@ -223,11 +223,11 @@ HTTP_REDIRECT=y
 SMTP_PORT=25
 SMTPS_PORT=465
 SUBMISSION_PORT=587
-IMAP_PORT=143
-IMAPS_PORT=993
-POP_PORT=110
-POPS_PORT=995
-SIEVE_PORT=4190
+IMAP_PORT=127.0.0.1:143
+IMAPS_PORT=127.0.0.1:993
+POP_PORT=127.0.0.1:110
+POPS_PORT=127.0.0.1:995
+SIEVE_PORT=127.0.0.1:4190
 DOVEADM_PORT=127.0.0.1:19991
 SQL_PORT=127.0.0.1:13306
 REDIS_PORT=127.0.0.1:7654
@@ -240,6 +240,7 @@ TZ=${MAILCOW_TZ}
 # Fixed project name
 # Please use lowercase letters only
 COMPOSE_PROJECT_NAME=mailcowdockerized
+ZERO_ACCESS_REQUIRED=y
 
 # Used Docker Compose version
 # Switch here between native (compose plugin) and standalone
@@ -329,7 +330,7 @@ SKIP_CLAMD=${SKIP_CLAMD}
 SKIP_OLEFY=n
 
 # Skip SOGo: Will disable SOGo integration and therefore webmail, DAV protocols and ActiveSync support (experimental, unsupported, not fully implemented) - y/n
-SKIP_SOGO=n
+SKIP_SOGO=y
 
 # Skip FTS (Fulltext Search) for Dovecot on low-memory, low-threaded systems or if you simply want to disable it.
 # Dovecot inside mailcow use Flatcurve as FTS Backend.
