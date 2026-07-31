@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createMemoryKeyEventStore, keyEventForUserKey, verifyKeyEventChain } from "./key-event-store";
+import { createKeyEventCheckpoint, createMemoryKeyEventStore, keyEventForUserKey, verifyKeyEventChain } from "./key-event-store";
 
 describe("zero-api key events", () => {
   test("stores normalized key events without private key envelopes", async () => {
@@ -193,6 +193,53 @@ describe("zero-api key events", () => {
       eventCount: 2,
       error: "previous_event_hash_mismatch",
       failedAt: 1
+    });
+  });
+
+  test("creates a checkpoint for a verified event chain", async () => {
+    const store = createMemoryKeyEventStore();
+    await store.append({
+      address: "alice@example.test",
+      eventType: "created",
+      primaryKeyId: "alice-key",
+      keyVersion: 1,
+      rotationMode: "initial"
+    });
+    await store.append({
+      address: "alice@example.test",
+      eventType: "password_reencrypted",
+      primaryKeyId: "alice-key",
+      keyVersion: 2,
+      rotationMode: "password_reencrypt",
+      previousKeyId: "previous-key-row"
+    });
+
+    await expect(createKeyEventCheckpoint("Alice@Example.Test", await store.list("alice@example.test"))).resolves.toEqual({
+      address: "alice@example.test",
+      ok: true,
+      eventCount: 2,
+      headEventHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      checkpointHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+    });
+  });
+
+  test("refuses to checkpoint a broken event chain", async () => {
+    const store = createMemoryKeyEventStore();
+    await store.append({
+      address: "alice@example.test",
+      eventType: "created",
+      primaryKeyId: "alice-key",
+      keyVersion: 1,
+      rotationMode: "initial"
+    });
+    const events = await store.list("alice@example.test");
+
+    await expect(createKeyEventCheckpoint("alice@example.test", [{ ...events[0], eventHash: "0".repeat(64) }])).resolves.toEqual({
+      address: "alice@example.test",
+      ok: false,
+      eventCount: 1,
+      error: "event_hash_mismatch",
+      failedAt: 0
     });
   });
 });

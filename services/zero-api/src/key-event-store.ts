@@ -27,6 +27,10 @@ export type KeyEventChainVerification =
   | { ok: true; eventCount: number; headEventHash?: string }
   | { ok: false; eventCount: number; error: "event_hash_mismatch" | "previous_event_hash_mismatch"; failedAt: number };
 
+export type KeyEventCheckpoint =
+  | { address: string; ok: true; eventCount: number; headEventHash?: string; checkpointHash: string }
+  | { address: string; ok: false; eventCount: number; error: "event_hash_mismatch" | "previous_event_hash_mismatch"; failedAt: number };
+
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -200,5 +204,31 @@ export async function verifyKeyEventChain(events: KeyEvent[]): Promise<KeyEventC
     ok: true,
     eventCount: events.length,
     headEventHash: previousEventHash
+  };
+}
+
+export async function createKeyEventCheckpoint(address: string, events: KeyEvent[]): Promise<KeyEventCheckpoint> {
+  const normalizedAddress = address.toLowerCase();
+  const verification = await verifyKeyEventChain(events);
+
+  if (!verification.ok) {
+    return {
+      address: normalizedAddress,
+      ...verification
+    };
+  }
+
+  const checkpointHash = await sha256(
+    JSON.stringify({
+      address: normalizedAddress,
+      eventCount: verification.eventCount,
+      headEventHash: verification.headEventHash
+    })
+  );
+
+  return {
+    address: normalizedAddress,
+    ...verification,
+    checkpointHash
   };
 }

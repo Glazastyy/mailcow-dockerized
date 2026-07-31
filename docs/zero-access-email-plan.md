@@ -179,6 +179,7 @@ Contratos iniciais da API:
 - `GET /keys/wkd/:address`: endpoint interno de montagem WKD.
 - `GET /events/key/:address`: retorna cadeia pública de eventos de chave para auditoria.
 - `GET /events/key/:address/verify`: verifica hash e encadeamento da cadeia pública de eventos de chave.
+- `GET /events/key/:address/checkpoint`: retorna resumo compacto da cadeia para pinning do cliente.
 - `GET /mail/folders`: lista folders.
 - `GET /mail/messages?folder=&cursor=`: lista metadados paginados.
 - `GET /mail/messages/:id/blob`: retorna ciphertext da mensagem.
@@ -472,7 +473,7 @@ Fontes: `local`, `wkd`, `autocrypt`, `manual`, `keyserver`.
 
 Eventos mínimos: `created`, `rotated`, `revoked`, `recovered`, `verified`, `password_reencrypted` e `password_reset`.
 
-Estado implementado no `zero-api`: criação de chave, troca de senha com recriptografia e reset destrutivo já registram eventos sem incluir chave privada criptografada, senha, KDF params ou envelopes privados. O store calcula `previous_event_hash` e `event_hash` por endereço para formar a primeira cadeia local de auditoria, e já existe verificação de integridade dessa cadeia.
+Estado implementado no `zero-api`: criação de chave, troca de senha com recriptografia e reset destrutivo já registram eventos sem incluir chave privada criptografada, senha, KDF params ou envelopes privados. O store calcula `previous_event_hash` e `event_hash` por endereço para formar a primeira cadeia local de auditoria, já existe verificação de integridade dessa cadeia e um checkpoint compacto para pinning do cliente.
 
 Essa tabela prepara key transparency local.
 

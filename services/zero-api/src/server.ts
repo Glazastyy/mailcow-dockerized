@@ -1,7 +1,7 @@
 import { readConfig, type ZeroApiConfig } from "./config";
 import { createFileBlobStore, createMemoryBlobStore, type BlobStore } from "./blob-store";
 import { createMemoryKeyStore, validatePasswordReencryptPayload, validateUserKeyPayload, type KeyStore } from "./key-store";
-import { createFileKeyEventStore, keyEventForUserKey, verifyKeyEventChain, type KeyEventStore } from "./key-event-store";
+import { createFileKeyEventStore, createKeyEventCheckpoint, keyEventForUserKey, verifyKeyEventChain, type KeyEventStore } from "./key-event-store";
 import { createFileMessageStore, validateMessagePayload, type MessageStore } from "./message-store";
 
 type JsonValue = Record<string, unknown>;
@@ -146,6 +146,16 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
       return jsonResponse({
         address,
         verification: await verifyKeyEventChain(events)
+      });
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/events/key/") && url.pathname.endsWith("/checkpoint")) {
+      const address = decodeURIComponent(url.pathname.slice("/events/key/".length, -"/checkpoint".length)).toLowerCase();
+      const events = await keyEventStore.list(address);
+
+      return jsonResponse({
+        address,
+        checkpoint: await createKeyEventCheckpoint(address, events)
       });
     }
 

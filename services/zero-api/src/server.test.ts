@@ -459,6 +459,48 @@ describe("zero-api handler", () => {
     });
   });
 
+  test("returns a compact key event checkpoint for pinning", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config, {
+      keyStore: createMemoryKeyStore(),
+      keyEventStore: createMemoryKeyEventStore()
+    });
+    await handler(
+      new Request("http://zero-api/crypto/keys", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          address: "alice@example.test",
+          primaryKeyId: "alice-key",
+          publicKeyArmored: "public",
+          encryptedPrivateKey: "old-envelope",
+          privateKeyKdf: "argon2id",
+          privateKeyKdfParams: { salt: "old" },
+          keyVersion: 1
+        })
+      })
+    );
+
+    const response = await handler(new Request("http://zero-api/events/key/alice@example.test/checkpoint"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body).toEqual({
+      address: "alice@example.test",
+      checkpoint: {
+        address: "alice@example.test",
+        ok: true,
+        eventCount: 1,
+        headEventHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        checkpointHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+      }
+    });
+    expect(JSON.stringify(body)).not.toContain("events");
+    expect(JSON.stringify(body)).not.toContain("old-envelope");
+    expect(JSON.stringify(body)).not.toContain("salt");
+  });
+
   test("stores only encrypted mail message metadata", async () => {
     await withTempBlobDir(async (root) => {
       const config = readConfig({ ZERO_ACCESS_REQUIRED: "y", ZERO_BLOB_DIR: root });
