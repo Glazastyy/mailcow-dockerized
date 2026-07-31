@@ -641,11 +641,11 @@ Saída esperada:
 
 Tarefas:
 
-- Implementar `zero_messages`.
-- Implementar blob store.
+- Implementar `zero_messages`. Iniciado no `zero-api` com armazenamento de metadados criptográficos, `folder`, `created` e persistência JSONL temporária.
+- Implementar blob store. Concluído no `zero-api` para upload/download de ciphertext com `Cache-Control: no-store`.
 - Implementar envelope interno.
 - Implementar envio local-local.
-- Implementar listagem de inbox.
+- Implementar listagem de inbox. Iniciado no `zero-api` com `GET /mail/messages?recipient=&folder=&cursor=&limit=`, paginação por cursor e filtro por destinatário/pasta.
 - Implementar leitura e descriptografia no browser.
 - Implementar anexos pequenos.
 - Adicionar teste que procura texto claro no banco, blobs e logs.

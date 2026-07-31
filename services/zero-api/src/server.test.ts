@@ -6,6 +6,7 @@ import { readConfig } from "./config";
 import { createHandler } from "./server";
 import { createMemoryKeyStore } from "./key-store";
 import { createMemoryKeyEventStore, type KeyEvent } from "./key-event-store";
+import { createMemoryMessageStore } from "./message-store";
 
 describe("zero-api config", () => {
   test("requires zero-access mode", () => {
@@ -515,9 +516,11 @@ describe("zero-api handler", () => {
       expect(created).toEqual({
         id: expect.any(String),
         recipient: "bob@example.test",
+        folder: "inbox",
         ciphertextBlobId: "11111111-1111-4111-8111-111111111111",
         recipientKeyId: "bob-key",
-        encryptionState: "local_e2ee"
+        encryptionState: "local_e2ee",
+        created: expect.any(String)
       });
       expect(readResponse.status).toBe(200);
       expect(readBody).toEqual(created);
@@ -571,5 +574,66 @@ describe("zero-api handler", () => {
       expect(readResponse.status).toBe(200);
       expect(await readResponse.json()).toEqual(created);
     });
+  });
+
+  test("lists encrypted mailbox metadata by recipient and folder with pagination", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const messageStore = createMemoryMessageStore();
+    const handler = createHandler(config, { messageStore });
+    const first = await messageStore.save({
+      recipient: "Alice@Example.Test",
+      folder: "inbox",
+      ciphertextBlobId: "blob-1",
+      recipientKeyId: "alice-key",
+      encryptionState: "local_e2ee"
+    });
+    const second = await messageStore.save({
+      recipient: "alice@example.test",
+      folder: "inbox",
+      ciphertextBlobId: "blob-2",
+      recipientKeyId: "alice-key",
+      encryptionState: "local_e2ee"
+    });
+    await messageStore.save({
+      recipient: "bob@example.test",
+      folder: "inbox",
+      ciphertextBlobId: "blob-3",
+      recipientKeyId: "bob-key",
+      encryptionState: "local_e2ee"
+    });
+    await messageStore.save({
+      recipient: "alice@example.test",
+      folder: "archive",
+      ciphertextBlobId: "blob-4",
+      recipientKeyId: "alice-key",
+      encryptionState: "local_e2ee"
+    });
+
+    const pageOne = await handler(new Request("http://zero-api/mail/messages?recipient=Alice%40Example.Test&folder=inbox&limit=1"));
+    const pageOneBody = await pageOne.json();
+    const pageTwo = await handler(
+      new Request(`http://zero-api/mail/messages?recipient=alice@example.test&folder=inbox&limit=1&cursor=${pageOneBody.nextCursor}`)
+    );
+
+    expect(pageOne.status).toBe(200);
+    expect(pageOne.headers.get("cache-control")).toBe("no-store");
+    expect(pageOneBody).toEqual({
+      messages: [first],
+      nextCursor: first.id
+    });
+    expect(await pageTwo.json()).toEqual({
+      messages: [second]
+    });
+    expect(JSON.stringify(pageOneBody)).not.toContain("body");
+    expect(JSON.stringify(pageOneBody)).not.toContain("subject");
+  });
+
+  test("requires a recipient when listing encrypted mailbox metadata", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config, { messageStore: createMemoryMessageStore() });
+    const response = await handler(new Request("http://zero-api/mail/messages?folder=inbox"));
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "missing_recipient" });
   });
 });

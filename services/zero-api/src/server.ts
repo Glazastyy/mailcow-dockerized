@@ -216,6 +216,23 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
       return jsonResponse(await messageStore.save(validation.message), 201);
     }
 
+    if (request.method === "GET" && url.pathname === "/mail/messages") {
+      const recipient = url.searchParams.get("recipient");
+
+      if (!recipient) {
+        return jsonResponse({ error: "missing_recipient" }, 422);
+      }
+
+      return jsonResponse(
+        await messageStore.list({
+          recipient,
+          folder: url.searchParams.get("folder") ?? undefined,
+          cursor: url.searchParams.get("cursor") ?? undefined,
+          limit: Number(url.searchParams.get("limit") ?? undefined)
+        })
+      );
+    }
+
     if (request.method === "GET" && url.pathname.startsWith("/mail/messages/")) {
       const id = url.pathname.slice("/mail/messages/".length);
       const message = await messageStore.get(id);
