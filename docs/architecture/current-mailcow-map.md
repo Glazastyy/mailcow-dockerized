@@ -69,4 +69,5 @@ Resultado: o servidor processa MIME em claro para e-mails enviados por SMTP trad
 - `SKIP_SOGO=y` passa a ser o default gerado.
 - `zero-api-mailcow` passa a existir como serviço Bun interno com healthcheck em `/health`.
 - A suíte Bun cobre defaults zero-access, validade do Compose, bind local de protocolos legados e comportamento inicial do `zero-api`.
+- `nginx-mailcow`, `ofelia-mailcow` e `watchdog-mailcow` deixam de ter dependências duras de SOGo/Dovecot no caminho zero-access.
 - Essa flag ainda não muda comportamento sozinha; ela cria o contrato para as próximas alterações recusarem fluxos não zero-access.

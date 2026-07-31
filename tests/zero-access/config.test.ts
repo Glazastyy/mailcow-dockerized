@@ -80,4 +80,18 @@ describe("zero-access compose topology", () => {
       }
     }
   });
+
+  test("zero-access web and scheduler path do not hard-depend on legacy webmail", () => {
+    const config = composeConfig();
+
+    expect(config.services["nginx-mailcow"].depends_on?.["sogo-mailcow"]).toBeUndefined();
+    expect(config.services["ofelia-mailcow"].depends_on?.["sogo-mailcow"]).toBeUndefined();
+  });
+
+  test("watchdog no longer blocks startup on legacy mailbox storage", () => {
+    const config = composeConfig();
+
+    expect(config.services["watchdog-mailcow"].depends_on?.["dovecot-mailcow"]).toBeUndefined();
+    expect(config.services["watchdog-mailcow"].depends_on?.["sogo-mailcow"]).toBeUndefined();
+  });
 });

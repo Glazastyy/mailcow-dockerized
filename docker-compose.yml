@@ -450,7 +450,6 @@ services:
       depends_on:
         - redis-mailcow
         - php-fpm-mailcow
-        - sogo-mailcow
         - rspamd-mailcow
       image: ghcr.io/mailcow/nginx:1.30.4-1
       dns:
@@ -574,7 +573,6 @@ services:
       restart: always
       depends_on:
         - postfix-mailcow
-        - dovecot-mailcow
         - mysql-mailcow
         - acme-mailcow
         - redis-mailcow
@@ -682,9 +680,6 @@ services:
       environment:
         - TZ=${TZ}
         - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}
-      depends_on:
-        - sogo-mailcow
-        - dovecot-mailcow
       labels:
         ofelia.enabled: "true"
       security_opt:

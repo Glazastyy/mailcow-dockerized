@@ -75,7 +75,7 @@ Data: 2026-07-31
 ## Ordem de adaptação dos componentes mailcow
 
 1. Propagar `ZERO_ACCESS_REQUIRED`.
-2. Fazer `watchdog-mailcow` parar de assumir Dovecot/SOGo como obrigatórios quando zero-access estiver ativo.
+2. Fazer `watchdog-mailcow` parar de assumir Dovecot/SOGo como obrigatórios quando zero-access estiver ativo. Concluído no Compose.
 3. Fazer `nginx-mailcow` servir rotas novas para `zero-web`, `zero-api` e WKD.
 4. Adicionar `zero-api` com healthcheck. Concluído como serviço `zero-api-mailcow`.
 5. Adicionar schema `zero_*`.
