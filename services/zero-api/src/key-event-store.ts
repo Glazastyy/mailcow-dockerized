@@ -127,7 +127,7 @@ async function readAllEvents(path: string) {
     data = await readFile(path, "utf8");
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      return undefined;
+      return [];
     }
 
     throw error;

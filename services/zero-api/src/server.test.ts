@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { readConfig } from "./config";
 import { createHandler } from "./server";
 import { createMemoryKeyStore } from "./key-store";
-import { createMemoryKeyEventStore } from "./key-event-store";
+import { createMemoryKeyEventStore, type KeyEvent } from "./key-event-store";
 
 describe("zero-api config", () => {
   test("requires zero-access mode", () => {
@@ -143,14 +143,10 @@ describe("zero-api handler", () => {
 
   test("registers encrypted user keys and exposes only public key material", async () => {
     const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
-    const keyEvents: unknown[] = [];
+    const keyEvents: KeyEvent[] = [];
     const handler = createHandler(config, {
       keyStore: createMemoryKeyStore(),
-      keyEventStore: {
-        async append(event) {
-          keyEvents.push(event);
-        }
-      }
+      keyEventStore: createMemoryKeyEventStore(keyEvents)
     });
     const createResponse = await handler(
       new Request("http://zero-api/crypto/keys", {
@@ -200,14 +196,10 @@ describe("zero-api handler", () => {
   test("re-encrypts private key envelope when the current password is available client-side", async () => {
     const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
     const keyStore = createMemoryKeyStore();
-    const keyEvents: unknown[] = [];
+    const keyEvents: KeyEvent[] = [];
     const handler = createHandler(config, {
       keyStore,
-      keyEventStore: {
-        async append(event) {
-          keyEvents.push(event);
-        }
-      }
+      keyEventStore: createMemoryKeyEventStore(keyEvents)
     });
     await keyStore.saveUserKey({
       address: "alice@example.test",
@@ -217,7 +209,8 @@ describe("zero-api handler", () => {
       privateKeyKdf: "argon2id",
       privateKeyKdfParams: { salt: "old" },
       keyVersion: 1,
-      status: "active"
+      status: "active",
+      rotationMode: "initial"
     });
     const response = await handler(
       new Request("http://zero-api/crypto/password/reencrypt", {
@@ -289,14 +282,10 @@ describe("zero-api handler", () => {
   test("resets cryptographic identity when current password is unavailable", async () => {
     const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
     const keyStore = createMemoryKeyStore();
-    const keyEvents: unknown[] = [];
+    const keyEvents: KeyEvent[] = [];
     const handler = createHandler(config, {
       keyStore,
-      keyEventStore: {
-        async append(event) {
-          keyEvents.push(event);
-        }
-      }
+      keyEventStore: createMemoryKeyEventStore(keyEvents)
     });
     await keyStore.saveUserKey({
       address: "alice@example.test",
@@ -306,7 +295,8 @@ describe("zero-api handler", () => {
       privateKeyKdf: "argon2id",
       privateKeyKdfParams: {},
       keyVersion: 1,
-      status: "active"
+      status: "active",
+      rotationMode: "initial"
     });
     const response = await handler(
       new Request("http://zero-api/crypto/password/reset", {

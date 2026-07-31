@@ -1,5 +1,5 @@
 import { readConfig, type ZeroApiConfig } from "./config";
-import { createFileBlobStore, createMemoryBlobStore, type BlobStore } from "./blob-store";
+import { arrayBufferFromBytes, createFileBlobStore, createMemoryBlobStore, type BlobStore } from "./blob-store";
 import { createMemoryKeyStore, validatePasswordReencryptPayload, validateUserKeyPayload, type KeyStore } from "./key-store";
 import { createFileKeyEventStore, createKeyEventCheckpoint, keyEventForUserKey, verifyKeyEventChain, type KeyEventStore } from "./key-event-store";
 import { createFileMessageStore, validateMessagePayload, type MessageStore } from "./message-store";
@@ -194,7 +194,7 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
         return jsonResponse({ error: "not_found" }, 404);
       }
 
-      return new Response(data, {
+      return new Response(arrayBufferFromBytes(data), {
         headers: {
           "content-type": "application/octet-stream",
           "cache-control": "no-store"

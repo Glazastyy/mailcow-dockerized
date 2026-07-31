@@ -7,8 +7,14 @@ export type BlobStore = {
 };
 
 async function sha256(data: Uint8Array) {
-  const digest = await crypto.subtle.digest("SHA-256", data);
+  const digest = await crypto.subtle.digest("SHA-256", arrayBufferFromBytes(data));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function arrayBufferFromBytes(data: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(buffer).set(data);
+  return buffer;
 }
 
 function assertBlobId(id: string) {

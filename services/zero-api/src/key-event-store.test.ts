@@ -1,10 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { createKeyEventCheckpoint, createMemoryKeyEventStore, keyEventForUserKey, verifyKeyEventChain } from "./key-event-store";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  createFileKeyEventStore,
+  createKeyEventCheckpoint,
+  createMemoryKeyEventStore,
+  keyEventForUserKey,
+  verifyKeyEventChain,
+  type KeyEvent
+} from "./key-event-store";
 
 describe("zero-api key events", () => {
   test("stores normalized key events without private key envelopes", async () => {
-    const events: unknown[] = [];
-    const store = createMemoryKeyEventStore(events as never);
+    const events: KeyEvent[] = [];
+    const store = createMemoryKeyEventStore(events);
     const event = await store.append(
       keyEventForUserKey(
         {
@@ -123,6 +133,13 @@ describe("zero-api key events", () => {
         keyVersion: 2
       })
     ]);
+  });
+
+  test("lists an empty file-backed chain before the event log exists", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zero-key-events-"));
+    const store = createFileKeyEventStore(root);
+
+    await expect(store.list("alice@example.test")).resolves.toEqual([]);
   });
 
   test("verifies an intact event chain", async () => {
