@@ -25,10 +25,16 @@ export type MessageListPage = {
   nextCursor?: string;
 };
 
+export type FolderSummary = {
+  folder: string;
+  total: number;
+};
+
 export type MessageStore = {
   save(message: MessageInput): Promise<MessageRecord>;
   get(id: string): Promise<MessageRecord | undefined>;
   list(query: MessageListQuery): Promise<MessageListPage>;
+  folders(recipient: string): Promise<FolderSummary[]>;
 };
 
 const cleartextFields = ["body", "msg", "html", "text", "subject"] as const;
@@ -93,6 +99,15 @@ function listRecords(records: MessageRecord[], query: MessageListQuery): Message
   };
 }
 
+function folderSummaries(records: MessageRecord[], recipient: string): FolderSummary[] {
+  const normalizedRecipient = recipient.toLowerCase();
+
+  return supportedFolders.map((folder) => ({
+    folder,
+    total: records.filter((message) => message.recipient === normalizedRecipient && message.folder === folder).length
+  }));
+}
+
 export function createMemoryMessageStore(messages = new Map<string, MessageRecord>()): MessageStore {
   return {
     async save(message) {
@@ -105,6 +120,9 @@ export function createMemoryMessageStore(messages = new Map<string, MessageRecor
     },
     async list(query) {
       return listRecords(Array.from(messages.values()), query);
+    },
+    async folders(recipient) {
+      return folderSummaries(Array.from(messages.values()), recipient);
     }
   };
 }
@@ -153,6 +171,9 @@ export function createFileMessageStore(root: string): MessageStore {
     },
     async list(query) {
       return listRecords(await readAllRecords(recordsPath), query);
+    },
+    async folders(recipient) {
+      return folderSummaries(await readAllRecords(recordsPath), recipient);
     }
   };
 }

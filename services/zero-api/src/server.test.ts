@@ -7,6 +7,7 @@ import { createHandler } from "./server";
 import { createMemoryKeyStore } from "./key-store";
 import { createMemoryKeyEventStore, type KeyEvent } from "./key-event-store";
 import { createMemoryMessageStore } from "./message-store";
+import { createMemoryAttachmentStore } from "./attachment-store";
 
 describe("zero-api config", () => {
   test("requires zero-access mode", () => {
@@ -635,5 +636,113 @@ describe("zero-api handler", () => {
 
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ error: "missing_recipient" });
+  });
+
+  test("lists mailbox folders with counts for one recipient", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const messageStore = createMemoryMessageStore();
+    const handler = createHandler(config, { messageStore });
+    await messageStore.save({
+      recipient: "Alice@Example.Test",
+      folder: "inbox",
+      ciphertextBlobId: "blob-1",
+      recipientKeyId: "alice-key",
+      encryptionState: "local_e2ee"
+    });
+    await messageStore.save({
+      recipient: "alice@example.test",
+      folder: "sent",
+      ciphertextBlobId: "blob-2",
+      recipientKeyId: "alice-key",
+      encryptionState: "local_e2ee"
+    });
+    await messageStore.save({
+      recipient: "bob@example.test",
+      folder: "inbox",
+      ciphertextBlobId: "blob-3",
+      recipientKeyId: "bob-key",
+      encryptionState: "local_e2ee"
+    });
+
+    const response = await handler(new Request("http://zero-api/mail/folders?recipient=Alice%40Example.Test"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      folders: [
+        { folder: "inbox", total: 1 },
+        { folder: "sent", total: 1 },
+        { folder: "archive", total: 0 },
+        { folder: "trash", total: 0 },
+        { folder: "spam", total: 0 }
+      ]
+    });
+  });
+
+  test("requires a recipient when listing mailbox folders", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config, { messageStore: createMemoryMessageStore() });
+    const response = await handler(new Request("http://zero-api/mail/folders"));
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "missing_recipient" });
+  });
+
+  test("stores and lists encrypted attachment metadata without clear filenames", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config, { attachmentStore: createMemoryAttachmentStore() });
+    const createResponse = await handler(
+      new Request("http://zero-api/mail/attachments", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messageId: "11111111-1111-4111-8111-111111111111",
+          ciphertextBlobId: "22222222-2222-4222-8222-222222222222",
+          encryptedName: "sealed-name",
+          mimeType: "application/octet-stream",
+          size: 42,
+          sha256Ciphertext: "a".repeat(64)
+        })
+      })
+    );
+    const created = await createResponse.json();
+    const readResponse = await handler(new Request(`http://zero-api/mail/attachments/${created.id}`));
+    const listResponse = await handler(new Request("http://zero-api/mail/messages/11111111-1111-4111-8111-111111111111/attachments"));
+
+    expect(createResponse.status).toBe(201);
+    expect(created).toEqual({
+      id: expect.any(String),
+      messageId: "11111111-1111-4111-8111-111111111111",
+      ciphertextBlobId: "22222222-2222-4222-8222-222222222222",
+      encryptedName: "sealed-name",
+      mimeType: "application/octet-stream",
+      size: 42,
+      sha256Ciphertext: "a".repeat(64)
+    });
+    expect(await readResponse.json()).toEqual(created);
+    expect(await listResponse.json()).toEqual({ attachments: [created] });
+    expect(JSON.stringify(created)).not.toContain("filename");
+    expect(JSON.stringify(created)).not.toContain("report.pdf");
+  });
+
+  test("rejects clear attachment names", async () => {
+    const config = readConfig({ ZERO_ACCESS_REQUIRED: "y" });
+    const handler = createHandler(config, { attachmentStore: createMemoryAttachmentStore() });
+    const response = await handler(
+      new Request("http://zero-api/mail/attachments", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messageId: "11111111-1111-4111-8111-111111111111",
+          ciphertextBlobId: "22222222-2222-4222-8222-222222222222",
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          size: 42,
+          sha256Ciphertext: "a".repeat(64)
+        })
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "cleartext_rejected" });
   });
 });

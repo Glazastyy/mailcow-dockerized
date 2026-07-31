@@ -645,9 +645,9 @@ Tarefas:
 - Implementar blob store. Concluído no `zero-api` para upload/download de ciphertext com `Cache-Control: no-store`.
 - Implementar envelope interno.
 - Implementar envio local-local.
-- Implementar listagem de inbox. Iniciado no `zero-api` com `GET /mail/messages?recipient=&folder=&cursor=&limit=`, paginação por cursor e filtro por destinatário/pasta.
+- Implementar listagem de inbox. Iniciado no `zero-api` com `GET /mail/messages?recipient=&folder=&cursor=&limit=`, paginação por cursor, filtro por destinatário/pasta e `GET /mail/folders?recipient=` com contagens por pasta.
 - Implementar leitura e descriptografia no browser.
-- Implementar anexos pequenos.
+- Implementar anexos pequenos. Iniciado no `zero-api` com metadados criptografados, validação de hash do ciphertext, `POST /mail/attachments`, `GET /mail/attachments/:id` e `GET /mail/messages/:id/attachments`.
 - Adicionar teste que procura texto claro no banco, blobs e logs.
 
 Saída esperada:

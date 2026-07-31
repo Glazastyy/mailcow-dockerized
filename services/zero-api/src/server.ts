@@ -3,6 +3,7 @@ import { arrayBufferFromBytes, createFileBlobStore, createMemoryBlobStore, type 
 import { createMemoryKeyStore, validatePasswordReencryptPayload, validateUserKeyPayload, type KeyStore } from "./key-store";
 import { createFileKeyEventStore, createKeyEventCheckpoint, keyEventForUserKey, verifyKeyEventChain, type KeyEventStore } from "./key-event-store";
 import { createFileMessageStore, validateMessagePayload, type MessageStore } from "./message-store";
+import { createFileAttachmentStore, validateAttachmentPayload, type AttachmentStore } from "./attachment-store";
 
 type JsonValue = Record<string, unknown>;
 type HandlerDeps = {
@@ -11,6 +12,7 @@ type HandlerDeps = {
   keyStore?: KeyStore;
   keyEventStore?: KeyEventStore;
   messageStore?: MessageStore;
+  attachmentStore?: AttachmentStore;
 };
 
 function jsonResponse(body: JsonValue, status = 200): Response {
@@ -32,6 +34,7 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
   const keyStore = deps.keyStore ?? createMemoryKeyStore();
   const keyEventStore = deps.keyEventStore ?? createFileKeyEventStore(config.blobDir);
   const messageStore = deps.messageStore ?? createFileMessageStore(config.blobDir);
+  const attachmentStore = deps.attachmentStore ?? createFileAttachmentStore(config.blobDir);
 
   return async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -231,6 +234,49 @@ export function createHandlerWithDeps(config: ZeroApiConfig, deps: HandlerDeps =
           limit: Number(url.searchParams.get("limit") ?? undefined)
         })
       );
+    }
+
+    if (request.method === "GET" && url.pathname === "/mail/folders") {
+      const recipient = url.searchParams.get("recipient");
+
+      if (!recipient) {
+        return jsonResponse({ error: "missing_recipient" }, 422);
+      }
+
+      return jsonResponse({ folders: await messageStore.folders(recipient) });
+    }
+
+    if (request.method === "POST" && url.pathname === "/mail/attachments") {
+      if (request.headers.get("content-type") !== "application/json") {
+        return jsonResponse({ error: "json_required" }, 415);
+      }
+
+      const validation = validateAttachmentPayload((await request.json()) as Record<string, unknown>);
+
+      if (!validation.ok) {
+        return jsonResponse({ error: validation.error }, 422);
+      }
+
+      return jsonResponse(await attachmentStore.save(validation.attachment), 201);
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/mail/messages/") && url.pathname.endsWith("/attachments")) {
+      const messageId = url.pathname.slice("/mail/messages/".length, -"/attachments".length);
+
+      return jsonResponse({
+        attachments: await attachmentStore.list(messageId)
+      });
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/mail/attachments/")) {
+      const id = url.pathname.slice("/mail/attachments/".length);
+      const attachment = await attachmentStore.get(id);
+
+      if (!attachment) {
+        return jsonResponse({ error: "not_found" }, 404);
+      }
+
+      return jsonResponse(attachment);
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/mail/messages/")) {
